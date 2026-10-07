@@ -122,3 +122,12 @@ def test_page_sanitizes_and_falls_back_to_plain_text():
     # marked >= 16 no longer ships a root marked.min.js; the unpinned URL 404'd -> pin a real path.
     assert "npm/marked@18/lib/marked.umd.js" in html and "npm/marked/marked.min.js" not in html
     assert "innerHTML = \"<pre>\"" not in html   # old fallback built HTML from strings
+
+
+def test_brief_shows_direction_mismatch():
+    from fin_agent.analysis.output_checks import check_numbers
+    b = make_brief([], analysis="**Trend:** up. It rose 12.3% last month.")
+    b.trend.check = check_numbers(b.trend.analysis, {"returns": {"1m": -0.123}})
+    md = b.to_markdown()
+    assert "> Numeric check: all 1 figures trace" in md
+    assert "Direction check: 1 figure(s) state the opposite direction" in md and "'rose 12.3%'" in md

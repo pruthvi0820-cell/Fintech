@@ -44,7 +44,7 @@ def main() -> int:
     client = client_from_env()
     stamp = datetime.now()
     parts = [f"# Trend report audit — {stamp:%Y-%m-%d %H:%M}", "", INSTRUCTIONS, ""]
-    total = 0
+    total = mismatches = 0
 
     for t in tickers:
         print(f"... {t}", file=sys.stderr)
@@ -56,6 +56,7 @@ def main() -> int:
         parts += [f"## {r.history.ticker}", "", r.header.split("\n", 1)[1], ""]
         if r.check:
             parts += [f"> {r.check.summary()}", ""]
+            mismatches += len(r.check.direction_mismatches)
         flags = r.snapshot["data_quality"]["large_daily_moves"]
         if flags:
             parts += [f"> Data flag: large one-day moves {flags}. Check for corporate actions.", ""]
@@ -65,7 +66,9 @@ def main() -> int:
         parts += ["", "<details><summary>Snapshot JSON</summary>", "", "```json"]
         parts += [json.dumps(r.snapshot, indent=2), "```", "</details>", ""]
 
-    parts += ["## Tally", "", f"Sentences reviewed: {total}", "Wrong: __   Vague: __",
+    parts += ["## Tally", "", f"Sentences reviewed: {total}",
+              f"Direction mismatches auto-flagged: {mismatches} (each one is a wrong sentence)",
+              "Wrong: __   Vague: __",
               "Most common problem pattern: ______________________"]
     REPORTS_DIR.mkdir(exist_ok=True)
     path = REPORTS_DIR / f"audit_{stamp:%Y%m%d-%H%M}.md"

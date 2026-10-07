@@ -32,9 +32,16 @@ fin_agent/
 The safety layering works like this:
 1. Python computes every number.
 2. Claude may only explain the numbers it was given.
-3. Python then checks Claude's text: each figure must trace back to the data, and each news bullet must cite a real item.
+3. Python then checks the model's text:
+   - **Numbers:** each figure must trace back to the data.
+   - **Direction:** a percentage next to a direction word ("rose 12.3%", "1.1% above its 20-day", "26.3% drawdown") must have the same sign as the source value. Values with no reliable sign (headline text, figures present with both signs) are not direction-checked.
+   - **Citations:** each news bullet must cite a real item.
 
-The check results are printed under every report. "Unverified" means a human should look; it does not necessarily mean wrong.
+The check results are printed under every report. "Unverified" means a human should look; it does not necessarily mean wrong. A direction mismatch is always wrong.
+
+If the model's reply was cut off at its token limit, every report shows a warning above the text.
+
+**Brief pages are rendered defensively.** Headlines, summaries, source names and the model's own text are HTML-escaped. Only http(s) links are kept, and the page sanitizes rendered HTML with DOMPurify. If the CDN libraries don't load, the page shows plain text.
 
 ## Which AI writes the text
 
@@ -46,13 +53,15 @@ This is set in `.env` with `FIN_AGENT_PROVIDER`:
 
 Small local models break the "only use the given numbers" rule more often than large ones. That makes the numeric check under each report more important, not less.
 
+**Thinking (`FIN_AGENT_THINK`, default `false`):** reasoning models like qwen3 think before answering. On a laptop that is slow, and it can use the whole token budget. With `false`, Ollama is sent `reasoning_effort: "none"`, its documented way to turn thinking off through the OpenAI-compatible API. Other providers are sent nothing. Local providers get a 4096-token budget; Anthropic keeps 1200–1500.
+
 ## Setup
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 24 tests, no network needed
+pytest                      # 80 tests, no network needed
 ```
 
 ## Run

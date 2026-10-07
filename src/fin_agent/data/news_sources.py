@@ -53,12 +53,18 @@ SOURCES: list[FeedSource] = [
     ),
     FeedSource(
         "Economic Times Markets", "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
-        "market", notes="Unverified: could not be reached from Claude's environment. Test locally.",
+        "market", verified="2026-10-07",
+        notes="High volume; includes broker stock tips and US/global market items.",
     ),
-    FeedSource("Mint Markets", "https://www.livemint.com/rss/markets", "market", notes="Unverified. Test locally."),
+    FeedSource(
+        "Mint Markets", "https://www.livemint.com/rss/markets", "market", verified="2026-10-07",
+        notes="High volume; includes broker stock tips.",
+    ),
     FeedSource(
         "Moneycontrol Latest", "https://www.moneycontrol.com/rss/latestnews.xml", "market",
-        notes="Unverified. Test locally.",
+        enabled=False,
+        notes="HTTP 403 to this tool's User-Agent on 2026-10-07 (publisher block, not a network "
+              "failure). Left disabled rather than imitating a browser.",
     ),
 ]
 

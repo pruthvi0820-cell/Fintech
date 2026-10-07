@@ -80,3 +80,15 @@ def test_prompt_numbers_items_and_shows_ist():
     items, _ = collect_news([RBI], hours=48, get=fake_get, now=NOW)
     prompt = build_news_user_prompt(items, NOW)
     assert "[1] (RBI | 2026-10-07 10:35 IST) Governor's Statement" in prompt
+
+
+def test_every_enabled_feed_has_a_verified_date():
+    # A feed nobody has seen working should not run by default; stale config must be visible.
+    unverified = [s.name for s in get_sources() if not s.verified]
+    assert unverified == []
+
+
+def test_publisher_blocked_feeds_are_disabled_by_default():
+    enabled = {s.name for s in get_sources()}
+    assert "Moneycontrol Latest" not in enabled and "PIB" not in enabled
+    assert {s.name for s in get_sources(include_disabled=True)} >= {"Moneycontrol Latest", "PIB"}

@@ -50,7 +50,8 @@ class SourceStatus:
 
 
 def clean_text(s: str | None, limit: int | None = None) -> str:
-    s = html.unescape(_TAG.sub(" ", s or ""))
+    # Unescape BEFORE stripping tags: the other order turns "&lt;img onerror=…&gt;" into a live tag.
+    s = _TAG.sub(" ", html.unescape(s or ""))
     s = _PAN.sub("[PAN]", _WS.sub(" ", s).strip())
     if limit and len(s) > limit:
         s = s[:limit].rsplit(" ", 1)[0] + "…"

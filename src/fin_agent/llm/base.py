@@ -6,12 +6,19 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
+TRUNCATION_WARNING = (
+    "**Warning:** the model's reply was cut off at its token limit, so this text is incomplete. "
+    "Re-run, or raise the token limit."
+)
+
+
 @dataclass
 class LLMResult:
     text: str
     model: str
     input_tokens: int
     output_tokens: int
+    truncated: bool = False      # the reply hit the token limit (finish_reason "length")
 
 
 class LLMClient(Protocol):

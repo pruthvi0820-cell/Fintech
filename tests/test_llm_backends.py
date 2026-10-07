@@ -45,3 +45,98 @@ def test_missing_model_gives_pull_command(monkeypatch):
     monkeypatch.setattr(openai_compat.requests, "post", lambda *a, **k: FakeResp(404, {}))
     with pytest.raises(RuntimeError, match="ollama pull qwen3:8b"):
         openai_compat.OpenAICompatClient("http://x/v1", "qwen3:8b").complete("s", "u")
+
+
+# ---- thinking models and cut-off replies
+
+def _reply(content, finish="stop", **message_extra):
+    return {"model": "qwen3:8b", "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            "choices": [{"message": {"content": content, **message_extra}, "finish_reason": finish}]}
+
+
+def _complete(monkeypatch, payload, **client_kw):
+    sent = {}
+
+    def post(url, **kw):
+        sent.update(kw["json"])
+        return FakeResp(200, payload)
+
+    monkeypatch.setattr(openai_compat.requests, "post", post)
+    res = openai_compat.OpenAICompatClient("http://x/v1", "qwen3:8b", **client_kw).complete("s", "u")
+    return res, sent
+
+
+def test_unclosed_think_block_is_stripped(monkeypatch):
+    res, _ = _complete(monkeypatch, _reply("**Trend:** down. <think>RSI 41.2 minus 30 is 11.2 and", "length"))
+    assert res.text == "**Trend:** down." and res.truncated
+
+
+def test_dangling_close_tag_drops_leading_thinking(monkeypatch):
+    res, _ = _complete(monkeypatch, _reply("41.2 - 30 = 11.2, so...</think>\n**Trend:** down."))
+    assert res.text == "**Trend:** down."
+
+
+@pytest.mark.parametrize("payload", [
+    _reply("<think>12*3=36 and then 41.2 - 30 = 11.2 so", "length"),      # cut off mid-thought
+    _reply("<think>done thinking</think>\n  "),                            # closed, but no answer
+    _reply("", "length", reasoning="41.2 - 30 = 11.2 ..."),                # Ollama's separate field
+])
+def test_think_only_reply_raises_clear_error(monkeypatch, payload):
+    with pytest.raises(RuntimeError, match="whole token budget .* thinking.*FIN_AGENT_THINK=false"):
+        _complete(monkeypatch, payload)
+
+
+def test_empty_reply_without_thinking_is_still_an_error(monkeypatch):
+    with pytest.raises(RuntimeError, match="empty reply"):
+        _complete(monkeypatch, _reply(""))
+
+
+def test_finish_reason_length_marks_truncated(monkeypatch):
+    res, _ = _complete(monkeypatch, _reply("**Trend:** down. The 50-day", "length"))
+    assert res.truncated and res.text == "**Trend:** down. The 50-day"
+    res, _ = _complete(monkeypatch, _reply("**Trend:** down."))
+    assert not res.truncated
+
+
+def test_separate_reasoning_field_is_ignored(monkeypatch):
+    res, _ = _complete(monkeypatch, _reply("**Trend:** down.", reasoning="RSI 99.9 is 12.3 above 87.6"))
+    assert res.text == "**Trend:** down." and "99.9" not in res.text
+
+
+@pytest.mark.parametrize(("think", "expected"), [(False, "none"), (None, None), (True, None)])
+def test_think_control_uses_documented_reasoning_effort(monkeypatch, think, expected):
+    _, sent = _complete(monkeypatch, _reply("ok"), think=think)
+    assert sent.get("reasoning_effort") == expected
+
+
+def _env(monkeypatch, **env):
+    for k in ("FIN_AGENT_PROVIDER", "FIN_AGENT_MODEL", "FIN_AGENT_THINK", "FIN_AGENT_LLM_URL"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+
+
+def test_ollama_defaults_to_no_thinking_and_4096_tokens(monkeypatch):
+    _env(monkeypatch)
+    c = client_from_env(max_tokens=1500)
+    assert c.think is False and c.max_tokens == 4096
+
+
+def test_think_true_and_non_ollama_providers_send_no_thinking_control(monkeypatch):
+    _env(monkeypatch, FIN_AGENT_THINK="true")
+    assert client_from_env().think is True
+    _env(monkeypatch, FIN_AGENT_PROVIDER="openai_compat", FIN_AGENT_LLM_URL="https://api.groq.example/v1")
+    c = client_from_env()
+    assert c.think is None and c.max_tokens == 4096
+
+
+def test_invalid_think_value_is_rejected(monkeypatch):
+    _env(monkeypatch, FIN_AGENT_THINK="maybe")
+    with pytest.raises(ValueError, match="FIN_AGENT_THINK"):
+        client_from_env()
+
+
+def test_anthropic_keeps_its_smaller_budget(monkeypatch):
+    _env(monkeypatch, FIN_AGENT_PROVIDER="anthropic", ANTHROPIC_API_KEY="sk-test")
+    assert client_from_env(max_tokens=1500).max_tokens == 1500
+    assert client_from_env().max_tokens == 1200

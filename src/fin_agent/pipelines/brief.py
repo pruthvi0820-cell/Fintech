@@ -19,6 +19,7 @@ from datetime import datetime
 from urllib.parse import quote, urlsplit
 
 from fin_agent.data.news_sources import TICKER_ALIASES, get_sources
+from fin_agent.llm.base import TRUNCATION_WARNING
 from fin_agent.pipelines.news import NewsDigest, build_news_digest
 from fin_agent.pipelines.trend import TrendReport, build_trend_report
 
@@ -76,6 +77,8 @@ class StockBrief:
         out = [f"# {esc(t.history.ticker)} — stock brief", "", esc(t.header.split("\n", 1)[1]), ""]
 
         out += ["## 1. Trend (from computed numbers)", ""]
+        if t.analysis and t.truncated:
+            out += [f"> {TRUNCATION_WARNING}", ""]
         out += [safe_model_text(t.analysis) if t.analysis else "_AI analysis skipped (--no-llm)._", ""]
         if t.check:
             out += [f"> {esc(t.check.summary())}", ""]
@@ -88,6 +91,8 @@ class StockBrief:
             out += ["_No matching headlines in the window. Absence of news is not a signal._", ""]
         else:
             if n.briefing:
+                if n.truncated:
+                    out += [f"> {TRUNCATION_WARNING}", ""]
                 out += [safe_model_text(n.briefing), ""]
                 for chk in (n.citations, n.numbers):
                     if chk:

@@ -131,3 +131,14 @@ def test_brief_shows_direction_mismatch():
     md = b.to_markdown()
     assert "> Numeric check: all 1 figures trace" in md
     assert "Direction check: 1 figure(s) state the opposite direction" in md and "'rose 12.3%'" in md
+
+
+def test_truncated_replies_are_flagged_in_every_report():
+    item = NewsItem("RBI", "regulator", "Repo held", "https://rbi.example/1", NOW)
+    b = make_brief([item], analysis="**Trend:** up and the", briefing="**Top line:** Repo [1] and")
+    b.trend.truncated = b.news.truncated = True
+    assert b.to_markdown().count("cut off at its token limit") == 2
+    assert "cut off at its token limit" in b.trend.to_markdown()
+    assert "cut off at its token limit" in b.news.to_markdown()
+    b.trend.truncated = b.news.truncated = False
+    assert "cut off" not in b.to_markdown()

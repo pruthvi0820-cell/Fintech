@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fin_agent.data.market_data import MarketDataError
+from fin_agent.llm.base import TRUNCATION_WARNING
 from fin_agent.llm.factory import client_from_env
 from fin_agent.pipelines.trend import build_trend_report
 
@@ -54,6 +55,8 @@ def main() -> int:
             parts += [f"## {t}", "", f"**Fetch failed:** {exc}", ""]
             continue
         parts += [f"## {r.history.ticker}", "", r.header.split("\n", 1)[1], ""]
+        if r.truncated:
+            parts += [f"> {TRUNCATION_WARNING}", ""]
         if r.check:
             parts += [f"> {r.check.summary()}", ""]
             mismatches += len(r.check.direction_mismatches)

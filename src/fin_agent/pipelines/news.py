@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from fin_agent.analysis.output_checks import CitationCheck, NumberCheck, check_citations, check_numbers
 from fin_agent.data.news import NewsItem, SourceStatus, collect_news
 from fin_agent.data.news_sources import FeedSource
+from fin_agent.llm.base import TRUNCATION_WARNING
 from fin_agent.llm.prompts import NEWS_PROMPT_VERSION, NEWS_SYSTEM, build_news_user_prompt
 
 
@@ -21,6 +22,7 @@ class NewsDigest:
     numbers: NumberCheck | None = None
     footer: str | None = None
     prompt: str = field(default="", repr=False)
+    truncated: bool = False
 
     def status_table(self) -> str:
         rows = ["| Source | Status | Entries | Kept |", "|---|---|---|---|"]
@@ -31,6 +33,8 @@ class NewsDigest:
     def to_markdown(self) -> str:
         parts = [f"# Market news digest — {self.generated_at:%Y-%m-%d %H:%M} UTC", "", self.status_table(), ""]
         if self.briefing:
+            if self.truncated:
+                parts += [f"> {TRUNCATION_WARNING}", ""]
             parts += [self.briefing, ""]
             for chk in (self.citations, self.numbers):
                 if chk:
@@ -55,6 +59,7 @@ def build_news_digest(
     if client is not None and items:
         res = client.complete(NEWS_SYSTEM, d.prompt)
         d.briefing = res.text
+        d.truncated = res.truncated
         d.citations = check_citations(res.text, len(items))
         d.numbers = check_numbers(res.text, d.prompt)
         d.footer = f"{res.model} | {NEWS_PROMPT_VERSION} | {res.input_tokens} in / {res.output_tokens} out tokens"

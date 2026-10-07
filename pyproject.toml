@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fintech-ai"
+version = "0.1.0"
+description = "Personal FinTech AI research assistant with human-in-the-loop trading safeguards."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=1.12",  # 1.x: fallbacks="default" support
+    "yfinance>=0.2.50",
+    "pandas>=2.0",
+    "numpy>=1.26",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "pandas-stubs>=2.0",
+]
+
+[project.scripts]
+fintech-ai = "fintech_ai.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fintech_ai"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true

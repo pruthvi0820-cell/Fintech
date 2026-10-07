@@ -140,3 +140,47 @@ def test_anthropic_keeps_its_smaller_budget(monkeypatch):
     _env(monkeypatch, FIN_AGENT_PROVIDER="anthropic", ANTHROPIC_API_KEY="sk-test")
     assert client_from_env(max_tokens=1500).max_tokens == 1500
     assert client_from_env().max_tokens == 1200
+
+
+# ---- Anthropic backend (mocked; no API key)
+
+from types import SimpleNamespace  # noqa: E402
+
+from fin_agent.llm.claude_client import ClaudeClient  # noqa: E402
+
+
+def _claude(stop_reason="end_turn", text="**Trend:** down.", **extra):
+    blocks = [SimpleNamespace(type="thinking", thinking="")]
+    if text is not None:
+        blocks.append(SimpleNamespace(type="text", text=text))
+    msg = SimpleNamespace(stop_reason=stop_reason, content=blocks, model="claude-sonnet-5-5",
+                          usage=SimpleNamespace(input_tokens=100, output_tokens=50), **extra)
+    sent = {}
+    client = ClaudeClient(api_key="sk-test", model="claude-sonnet-5-5")
+    client._client = SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: sent.update(kw) or msg))
+    return client, sent
+
+
+def test_claude_sends_no_temperature():
+    client, sent = _claude()
+    res = client.complete("s", "u", temperature=0.2)
+    assert "temperature" not in sent and sent["max_tokens"] == 1200
+    assert res.text == "**Trend:** down." and not res.truncated
+
+
+@pytest.mark.parametrize("stop", ["max_tokens", "model_context_window_exceeded"])
+def test_claude_cut_off_reply_is_truncated(stop):
+    client, _ = _claude(stop, "**Trend:** down and the")
+    assert client.complete("s", "u").truncated
+
+
+def test_claude_budget_spent_thinking_raises():
+    client, _ = _claude("max_tokens", text=None)
+    with pytest.raises(RuntimeError, match="whole token budget"):
+        client.complete("s", "u")
+
+
+def test_claude_refusal_raises_clear_error():
+    client, _ = _claude("refusal", text=None, stop_details=SimpleNamespace(category="cyber"))
+    with pytest.raises(RuntimeError, match="declined.*cyber"):
+        client.complete("s", "u")

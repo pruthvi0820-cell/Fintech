@@ -52,7 +52,7 @@ def test_bad_rows_are_skipped_with_reasons_and_totals_ignored():
     (b"", "Could not read the file"),
     (b"Symbol,Qty\n" + b"X,1\n" * 501, "More than 500 rows"),
     (b"x" * (MAX_BYTES + 1), "larger than"),
-])
+], ids=["no-symbol-or-qty-column", "header-only", "empty-file", "too-many-rows", "too-large"])
 def test_unusable_files_give_clear_errors(data, message):
     with pytest.raises(PortfolioError, match=message):
         parse_holdings_csv(data)

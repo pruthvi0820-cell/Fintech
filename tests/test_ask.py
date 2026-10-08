@@ -128,7 +128,7 @@ def test_bad_ticker_becomes_a_message():
     assert a.kind == "error" and "no data after 3 attempts" in a.markdown
 
 
-@pytest.mark.parametrize("q", ["", "   ", "x" * 1001])
+@pytest.mark.parametrize("q", ["", "   ", "x" * 1001], ids=["empty", "blank", "too-long"])
 def test_empty_or_huge_questions_are_refused_without_a_model_call(q):
     client = FakeClient()
     assert answer(q, client).kind == "notice" and client.calls == []

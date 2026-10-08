@@ -7,6 +7,8 @@ Claude Sonnet 5.5 migration guide. The model's default applies instead.
 
 from __future__ import annotations
 
+from typing import Callable
+
 from fin_agent.llm.base import LLMResult
 
 # Stop reasons that mean the reply was cut off before the model finished.
@@ -21,8 +23,10 @@ class ClaudeClient:
         self.model = model
         self.max_tokens = max_tokens
 
-    def complete(self, system: str, user: str, temperature: float = 0.2) -> LLMResult:
-        """`temperature` is accepted for interface compatibility and deliberately not sent."""
+    def complete(self, system: str, user: str, temperature: float = 0.2,
+                 on_text: Callable[[str], None] | None = None) -> LLMResult:
+        """`temperature` is accepted for interface compatibility and deliberately not sent.
+        `on_text` receives the full answer once (this backend does not stream yet)."""
         msg = self._client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -43,6 +47,8 @@ class ClaudeClient:
                     "(thinking counts toward max_tokens). Raise max_tokens."
                 )
             raise RuntimeError(f"Claude returned an empty reply (stop_reason: {msg.stop_reason}).")
+        if on_text is not None:
+            on_text(text)
         return LLMResult(
             text=text,
             model=msg.model,

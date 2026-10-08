@@ -149,3 +149,16 @@ def test_news_is_included_only_when_asked():
     assert calls[0]["keywords"] == ["TCS", "Tata Consultancy"] and calls[0]["max_items"] == 15
     assert "### Related news" in a.markdown and "&lt;b&gt;today&lt;/b&gt;" in a.markdown
     assert "news-v1" in a.footer
+
+
+def test_on_text_reaches_the_model_call_only_when_given():
+    class StreamingFake(FakeClient):
+        def complete(self, system, user, temperature=0.2, on_text=None):
+            if on_text:
+                on_text("RSI measures")
+                on_text("RSI measures momentum.")
+            return super().complete(system, user, temperature)
+    seen = []
+    a = answer("What is RSI?", StreamingFake("RSI measures momentum."), on_text=seen.append)
+    assert seen == ["RSI measures", "RSI measures momentum."] and a.kind == "tutor"
+    assert answer("What is RSI?", FakeClient("ok")).kind == "tutor"     # old-style clients still work

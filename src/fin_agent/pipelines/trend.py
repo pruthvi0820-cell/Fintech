@@ -46,12 +46,14 @@ class TrendReport:
         return "\n".join(parts) + "\n"
 
 
-def build_trend_report(ticker: str, period: str = "2y", client=None) -> TrendReport:
+def build_trend_report(ticker: str, period: str = "2y", client=None, on_text=None) -> TrendReport:
     """Raises MarketDataError on bad tickers. With client=None, numbers only."""
     hist = fetch_history(ticker, period=period)
     report = TrendReport(history=hist, snapshot=compute_snapshot(hist.bars))
     if client is not None:
-        res = client.complete(TREND_SYSTEM, build_trend_user_prompt(hist.ticker, hist.currency, report.snapshot))
+        stream = {"on_text": on_text} if on_text is not None else {}
+        res = client.complete(TREND_SYSTEM, build_trend_user_prompt(hist.ticker, hist.currency, report.snapshot),
+                              **stream)
         report.analysis = res.text
         report.truncated = res.truncated
         report.check = check_numbers(res.text, report.snapshot)

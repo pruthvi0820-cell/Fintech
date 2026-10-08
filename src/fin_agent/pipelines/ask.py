@@ -85,8 +85,8 @@ def _footer(res: Any, version: str) -> str:
 
 
 def _stock(ticker: str, client: LLMClient, include_news: bool,
-           trend_builder: Callable[..., Any], news_builder: Callable[..., Any]) -> Answer:
-    t = trend_builder(ticker, client=client)
+           trend_builder: Callable[..., Any], news_builder: Callable[..., Any], stream: dict) -> Answer:
+    t = trend_builder(ticker, client=client, **stream)
     parts = [f"### {esc(t.history.ticker)} — trend", "", esc(t.header.split("\n", 1)[1]), ""]
     if warning := data_warning(t.snapshot):
         parts += [f"> {esc(warning)}", ""]
@@ -117,22 +117,22 @@ def _stock(ticker: str, client: LLMClient, include_news: bool,
     return Answer("stock", "\n".join(parts).strip(), " · ".join(f for f in footers if f) or None)
 
 
-def _portfolio(question: str, client: LLMClient, portfolio: Portfolio | None) -> Answer:
+def _portfolio(question: str, client: LLMClient, portfolio: Portfolio | None, stream: dict) -> Answer:
     if portfolio is None:
         return Answer("notice", "Upload your holdings CSV in the sidebar first, then ask again.")
     try:
         snap = portfolio_snapshot(portfolio)
     except PortfolioError as exc:
         return Answer("notice", esc(str(exc)))
-    res = client.complete(PORTFOLIO_SYSTEM, build_portfolio_user_prompt(question, snap))
+    res = client.complete(PORTFOLIO_SYSTEM, build_portfolio_user_prompt(question, snap), **stream)
     check = check_numbers(res.text, {"facts": snap, "question": question})
     parts = [f"> {TRUNCATION_WARNING}", ""] if res.truncated else []
     parts += [safe_model_text(res.text), "", f"> {esc(check.summary())}"]
     return Answer("portfolio", "\n".join(parts), _footer(res, PORTFOLIO_PROMPT_VERSION))
 
 
-def _tutor(question: str, client: LLMClient) -> Answer:
-    res = client.complete(TUTOR_SYSTEM, question)
+def _tutor(question: str, client: LLMClient, stream: dict) -> Answer:
+    res = client.complete(TUTOR_SYSTEM, question, **stream)
     parts = [f"> {TRUNCATION_WARNING}", ""] if res.truncated else []
     parts += [safe_model_text(res.text), "", NOT_CHECKED]
     return Answer("tutor", "\n".join(parts), _footer(res, TUTOR_PROMPT_VERSION))
@@ -146,8 +146,13 @@ def answer(
     *,
     trend_builder: Callable[..., Any] = build_trend_report,
     news_builder: Callable[..., Any] = build_news_digest,
+    on_text: Callable[[str], None] | None = None,
 ) -> Answer:
-    """Route a question and return a rendered, checked answer. Never raises for expected failures."""
+    """Route a question and return a rendered, checked answer. Never raises for expected failures.
+
+    on_text, if given, receives the main answer while it is being written (before the checks run).
+    """
+    stream = {"on_text": on_text} if on_text is not None else {}
     q = (question or "").strip()
     if not q:
         return Answer("notice", "Type a question first.")
@@ -155,10 +160,10 @@ def answer(
         return Answer("notice", f"Please keep questions under {MAX_QUESTION_CHARS} characters.")
     try:
         if _PORTFOLIO.search(q):
-            return _portfolio(q, client, portfolio)
+            return _portfolio(q, client, portfolio, stream)
         if ticker := find_ticker(q, portfolio):
-            return _stock(ticker, client, include_news, trend_builder, news_builder)
-        return _tutor(q, client)
+            return _stock(ticker, client, include_news, trend_builder, news_builder, stream)
+        return _tutor(q, client, stream)
     except MarketDataError as exc:
         return Answer("error", f"Could not get price data. {esc(str(exc))}")
     except requests.Timeout:

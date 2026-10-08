@@ -22,6 +22,7 @@ from fin_agent.config import Settings
 from fin_agent.data import market_data
 from fin_agent.llm import factory
 from fin_agent.pipelines.ask import answer
+from fin_agent.pipelines.brief import safe_model_text
 import sqlite3
 
 from fin_agent.portfolio.holdings import PortfolioError, parse_holdings_csv, portfolio_snapshot
@@ -364,15 +365,20 @@ with tab_chat:
         with st.chat_message("user"):
             st.text(question)                  # the user's own text, shown literally
         with st.chat_message("assistant"):
-            with st.spinner("Thinking… on a laptop this can take 1-3 minutes."):
+            live = st.empty()                      # the answer appears here word by word
+
+            def show_partial(text: str) -> None:
+                live.markdown(safe_model_text(text) + "\n\n_… writing. Checks run when it finishes._")
+
+            with st.spinner("Thinking… the first words usually appear within a few seconds."):
                 try:
                     client = factory.client_from_env(max_tokens=1500)
                 except (ValueError, RuntimeError) as exc:
                     result_md, footer = f"Can't start the model: {exc}", None
                 else:
-                    result = answer(question, client, portfolio, include_news)
+                    result = answer(question, client, portfolio, include_news, on_text=show_partial)
                     result_md, footer = result.markdown, result.footer
-            st.markdown(result_md)
+            live.markdown(result_md)               # the final, checked version replaces the draft
             if footer:
                 st.caption(footer)
         st.session_state.messages.append({"role": "assistant", "content": result_md, "footer": footer})

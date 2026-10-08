@@ -184,3 +184,81 @@ def test_claude_refusal_raises_clear_error():
     client, _ = _claude("refusal", text=None, stop_details=SimpleNamespace(category="cyber"))
     with pytest.raises(RuntimeError, match="declined.*cyber"):
         client.complete("s", "u")
+
+
+# ---- streaming (server-sent events, as Ollama's /v1/chat/completions sends with stream=true)
+
+import json  # noqa: E402
+
+
+class FakeStream:
+    status_code = 200
+
+    def __init__(self, lines):
+        self._lines = lines
+
+    def raise_for_status(self):
+        pass
+
+    def iter_lines(self, decode_unicode=False):
+        yield from self._lines
+
+
+def sse(*chunks, done=True):
+    lines = [": keep-alive", ""]
+    for c in chunks:
+        lines += [f"data: {json.dumps(c)}", ""]
+    return lines + (["data: [DONE]"] if done else [])
+
+
+def delta(content=None, reasoning=None, finish=None):
+    d = {k: v for k, v in (("content", content), ("reasoning", reasoning)) if v is not None}
+    return {"model": "qwen3:8b", "choices": [{"index": 0, "delta": d, "finish_reason": finish}]}
+
+
+def _stream(monkeypatch, lines):
+    sent = {}
+
+    def post(url, **kw):
+        sent.update(kw)
+        return FakeStream(lines)
+
+    monkeypatch.setattr(openai_compat.requests, "post", post)
+    seen = []
+    res = openai_compat.OpenAICompatClient("http://x/v1", "qwen3:8b", think=False).complete(
+        "s", "u", on_text=seen.append)
+    return res, seen, sent
+
+
+def test_streaming_shows_partial_text_and_returns_the_full_result(monkeypatch):
+    words = ["**Trend:** ", "The stock is in a ", "downtrend. ", "RSI is 43.2 ", "(neutral)."]
+    usage = {"model": "qwen3:8b", "choices": [], "usage": {"prompt_tokens": 900, "completion_tokens": 40}}
+    res, seen, sent = _stream(monkeypatch, sse(*[delta(w) for w in words], delta(finish="stop"), usage))
+    assert res.text == "".join(words).strip() and not res.truncated
+    assert (res.input_tokens, res.output_tokens) == (900, 40)
+    assert len(seen) >= 2 and seen[-1] == res.text and seen[0] != seen[-1]     # grew while writing
+    assert sent["stream"] is True and sent["json"]["stream"] is True
+    assert sent["json"]["stream_options"] == {"include_usage": True}
+    assert sent["json"]["reasoning_effort"] == "none"
+
+
+def test_streaming_reasoning_is_never_shown_and_length_finish_is_truncated(monkeypatch):
+    res, seen, _ = _stream(monkeypatch, sse(delta(reasoning="41.2 - 30 = 11.2"), delta("Down."),
+                                            delta(" And the", finish="length")))
+    assert res.text == "Down. And the" and res.truncated
+    assert all("11.2" not in s for s in seen)
+
+
+def test_streaming_reasoning_only_reply_raises(monkeypatch):
+    with pytest.raises(RuntimeError, match="whole token budget"):
+        _stream(monkeypatch, sse(delta(reasoning="thinking..."), delta(finish="length")))
+
+
+def test_streaming_bad_chunk_raises_clear_error(monkeypatch):
+    with pytest.raises(RuntimeError, match="unreadable stream chunk"):
+        _stream(monkeypatch, ["data: {not json"])
+
+
+def test_non_streaming_request_is_unchanged(monkeypatch):
+    _, sent = _complete(monkeypatch, _reply("ok"))
+    assert "stream" not in sent and "stream_options" not in sent

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Callable, Protocol
 
 
 TRUNCATION_WARNING = (
@@ -24,4 +24,6 @@ class LLMResult:
 class LLMClient(Protocol):
     model: str
 
-    def complete(self, system: str, user: str, temperature: float = 0.2) -> LLMResult: ...
+    def complete(self, system: str, user: str, temperature: float = 0.2,
+                 on_text: Callable[[str], None] | None = None) -> LLMResult: ...
+    # on_text, if given, receives the answer-so-far while it is being written (streaming).

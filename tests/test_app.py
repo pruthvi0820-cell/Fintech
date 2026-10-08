@@ -19,8 +19,12 @@ APP = str(Path(__file__).resolve().parent.parent / "scripts" / "app.py")
 
 
 class FakeClient:
-    def complete(self, system, user, temperature=0.2):
-        return LLMResult("RSI measures momentum <script>alert(1)</script>. Clear?", "fake", 3, 4)
+    def complete(self, system, user, temperature=0.2, on_text=None):
+        text = "RSI measures momentum <script>alert(1)</script>. Clear?"
+        if on_text:
+            on_text(text[:12])          # a partial draft, as streaming would send
+            on_text(text)
+        return LLMResult(text, "fake", 3, 4)
 
 
 def fake_history(ticker, period="2y"):

@@ -1,4 +1,4 @@
-"""fin_agent page: candlestick chart with rule-based signals and their backtest, plus an AI chat.
+"""FinTray page: candlestick chart with rule-based signals and their backtest, plus an AI chat.
 
 Start it with:
     streamlit run scripts/app.py
@@ -119,7 +119,8 @@ def chart_tab() -> None:
             } for t in result.trades]), hide_index=True, use_container_width=True)
     st.caption(SIGNALS_CAVEAT)
 
-st.set_page_config(page_title="fin_agent", page_icon="📈", layout="wide")
+APP_NAME = "FinTray"
+st.set_page_config(page_title=APP_NAME, page_icon="📈", layout="wide")
 st.session_state.setdefault("messages", [])
 
 # ---------------------------------------------------------------- sidebar: portfolio + settings
@@ -167,7 +168,7 @@ with st.sidebar:
     st.caption(DISCLAIMER)
 
 # ---------------------------------------------------------------- page
-st.title("fin_agent")
+st.title(APP_NAME)
 tab_chart, tab_chat = st.tabs(["📈 Chart & signals", "💬 Ask AI"])
 
 with tab_chart:

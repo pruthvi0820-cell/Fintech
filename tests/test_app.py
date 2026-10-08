@@ -52,7 +52,7 @@ def app(monkeypatch):
 def test_page_loads_with_examples_and_no_errors(app):
     app.run()
     assert not app.exception
-    assert app.title[0].value == "fin_agent"
+    assert app.title[0].value == "FinTray"
     assert [b.label for b in app.button] == ["Analyze", "How is RELIANCE.NS doing?", "What is RSI?",
                                               "Is my portfolio diversified?"]
     assert [t.label for t in app.tabs] == ["📈 Chart & signals", "💬 Ask AI"]

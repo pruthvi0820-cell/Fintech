@@ -1,8 +1,10 @@
-# fin_agent
+# FinTray
 
-A personal FinTech research assistant. It analyses market data and drafts orders. A human approves every execution.
+A personal FinTech research assistant for Indian stocks. It analyses market data and drafts orders. A human approves every execution.
 
 ## Layout
+
+The app is called **FinTray**. Inside the code the Python package keeps its original name, `fin_agent`, and the settings keep their `FIN_AGENT_` prefix, so existing `.env` files and imports keep working.
 
 ```
 fin_agent/

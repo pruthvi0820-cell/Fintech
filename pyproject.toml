@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fin-agent"
 version = "0.1.0"
-description = "Personal FinTech research assistant: market data, indicators, Claude-written analysis. Human-in-the-loop by design."
+description = "FinTray: personal FinTech research assistant for Indian stocks. Market data, indicators, checked AI explanations. Human-in-the-loop by design."
 requires-python = ">=3.10"
 dependencies = [
     "pandas>=2.0",

@@ -15,6 +15,7 @@ import pandas as pd
 import streamlit as st
 
 from fin_agent.analysis.backtest import DEFAULT_COST_PER_SIDE, backtest
+from fin_agent.analysis.risk import DEFAULT_RISK_PCT, PlanError, plan_trade
 from fin_agent.analysis.signals import latest_signals
 from fin_agent.charts import candle_chart
 from fin_agent.config import Settings
@@ -46,6 +47,42 @@ def show_rules(title: str, rules: list[dict]) -> None:
     st.markdown(f"**{title}**")
     for r in rules:
         st.markdown(f"{'✅' if r['met'] else '⬜'} {r['text']} — `{r['detail']}`")
+
+
+def trade_plan_section(bars: pd.DataFrame, cost_per_side: float):
+    """Risk calculator: how many shares, where the stop-loss and target are. Returns the plan or None."""
+    st.subheader("Trade plan (if you decide to buy)")
+    st.caption("Sizes the position so a stop-loss hit costs only the % of capital you choose. "
+               "Long only: delivery swing trades.")
+    c = st.columns(5)
+    st.session_state.setdefault("capital", 100000.0)      # remembered while the page is open
+    capital = c[0].number_input("Your capital ₹", min_value=0.0, step=10000.0, key="capital")
+    risk = c[1].number_input("Risk per trade %", 0.1, 5.0, DEFAULT_RISK_PCT * 100, 0.1,
+                             help="How much of your capital you accept losing if the stop-loss is hit.")
+    stop_atr = c[2].number_input("Stop distance (× ATR)", 0.5, 6.0, 2.0, 0.5,
+                                 help="ATR is the average daily price range. 2× keeps the stop out of normal noise.")
+    rr = c[3].number_input("Target (× risk)", 0.5, 10.0, 2.0, 0.5,
+                           help="2 means the target is twice as far above entry as the stop is below it.")
+    cap = c[4].number_input("Max position %", 1.0, 100.0, 25.0, 1.0,
+                            help="Never put more than this share of capital in one stock.")
+    try:
+        p = plan_trade(bars, capital, risk / 100, stop_atr, rr, cap / 100, cost_per_side=cost_per_side)
+    except PlanError as exc:
+        st.warning(str(exc))
+        return None
+    m = st.columns(6)
+    m[0].metric("Buy shares", f"{p.shares:,}")
+    m[1].metric("Entry ≈ last close", f"₹{p.entry:,.2f}")
+    m[2].metric("Stop-loss", f"₹{p.stop:,.2f}", f"-{p.stop_distance_pct * 100:.1f}%", delta_color="off")
+    m[3].metric("Target", f"₹{p.target:,.2f}", f"+{p.target_distance_pct * 100:.1f}%", delta_color="off")
+    m[4].metric(f"Max loss at stop ({p.max_loss_pct * 100:.2f}% of capital)", f"₹{p.max_loss:,.0f}")
+    m[5].metric(f"Position size ({p.position_pct * 100:.1f}% of capital)", f"₹{p.position_value:,.0f}")
+    st.caption(f"ATR {p.atr:,.2f}. Shares limited by your {p.limited_by}. Profit if target hit "
+               f"≈ ₹{p.reward_if_target:,.0f} after estimated costs. Prices are delayed; check the live price "
+               "before ordering.")
+    for w in p.warnings:
+        st.caption(f"⚠️ {w}")
+    return p
 
 
 def chart_tab() -> None:
@@ -94,7 +131,9 @@ def chart_tab() -> None:
     for pattern in sig["patterns"]:
         st.info(f"Last candle pattern: {pattern}")
 
-    st.plotly_chart(candle_chart(bars, f"{hist.ticker} — daily candles", result), use_container_width=True)
+    plan = trade_plan_section(bars, cost / 100)
+    st.plotly_chart(candle_chart(bars, f"{hist.ticker} — daily candles", result, plan),
+                    use_container_width=True)
 
     st.subheader("How these rules did on this stock (backtest)")
     st.caption(f"{result.start} to {result.end}. Buy at the next day's open when at least {entry} buy "

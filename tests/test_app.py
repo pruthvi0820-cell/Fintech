@@ -94,3 +94,20 @@ def test_chart_tab_bare_symbol_gets_ns_and_bad_symbol_shows_error(app):
     button(app, "Analyze").click().run()
     assert not app.exception
     assert any("ZZZ.NS: no data" in e.value for e in app.error)
+
+
+def test_trade_plan_shows_size_stop_and_target_and_reacts_to_capital(app):
+    app.run()
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    metrics = {m.label: m.value for m in app.metric}
+    assert {"Buy shares", "Stop-loss", "Target"} <= set(metrics)
+    assert any(k.startswith("Max loss at stop (") for k in metrics)
+    assert any(k.startswith("Position size (") for k in metrics)
+    shares_at_1l = int(metrics["Buy shares"].replace(",", ""))
+    app.number_input(key="capital").set_value(200000.0).run()
+    metrics = {m.label: m.value for m in app.metric}
+    assert int(metrics["Buy shares"].replace(",", "")) in (2 * shares_at_1l, 2 * shares_at_1l + 1)
+    app.number_input(key="capital").set_value(0.0).run()
+    assert any("trading capital" in w.value for w in app.warning)
+    assert not app.exception

@@ -63,7 +63,7 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 163 tests, no network needed
+pytest                      # 182 tests, no network needed
 ```
 
 ## The page
@@ -79,6 +79,7 @@ streamlit run scripts/app.py        # opens http://localhost:8501
 - Candlestick chart with 20/50/200-day averages, volume and RSI.
 - Five buy and five sell conditions, each shown as met/not met with the actual values.
 - A backtest of those exact rules on the stock's last ~2 years: trades, win rate, total return compared with just holding, worst drop. Settings (thresholds, max holding days, costs) are adjustable.
+- **Trade plan (risk calculator):** enter your capital and the % you accept losing per trade. It gives the number of shares, a stop-loss 2 × ATR below entry, a target at 2 × the risk, the rupee loss if the stop is hit, and the position size. Positions are capped at 25% of capital. The levels are drawn on the chart. Long only (delivery).
 - Signals are rules computed in Python, not AI opinions and not predictions. The AI never issues a buy/sell verdict or price target. The decision is always yours.
 
 **💬 Ask AI:**

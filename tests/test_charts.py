@@ -34,3 +34,13 @@ def test_chart_has_candles_averages_volume_rsi_and_trade_markers():
 def test_chart_without_backtest_has_no_markers():
     names = [t.name for t in candle_chart(_bars(), "TEST.NS").data]
     assert "Backtest buy" not in names
+
+
+def test_trade_plan_levels_are_drawn():
+    from fin_agent.analysis.risk import plan_trade
+    bars = _bars()
+    plan = plan_trade(bars, capital=100_000)
+    fig = candle_chart(bars, "TEST.NS", plan=plan)
+    texts = [a.text for a in fig.layout.annotations]
+    assert any(t.startswith("Stop-loss") for t in texts) and any(t.startswith("Target") for t in texts)
+    assert {round(s.y0, 2) for s in fig.layout.shapes} >= {plan.stop, plan.entry, plan.target}

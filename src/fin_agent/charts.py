@@ -10,11 +10,13 @@ from typing import Any
 import pandas as pd
 
 from fin_agent.analysis.backtest import BacktestResult
+from fin_agent.analysis.risk import TradePlan
 from fin_agent.analysis.signals import RSI_MOMENTUM, signal_frame
 from fin_agent.analysis.indicators import RSI_OVERBOUGHT, RSI_OVERSOLD, sma
 
 
-def candle_chart(bars: pd.DataFrame, title: str, result: BacktestResult | None = None) -> Any:
+def candle_chart(bars: pd.DataFrame, title: str, result: BacktestResult | None = None,
+                 plan: TradePlan | None = None) -> Any:
     from plotly.subplots import make_subplots
     import plotly.graph_objects as go
 
@@ -41,6 +43,13 @@ def candle_chart(bars: pd.DataFrame, title: str, result: BacktestResult | None =
             y=[t.exit_price for t in result.trades], mode="markers", name="Backtest sell",
             marker={"symbol": "triangle-down", "size": 11, "color": "#d73027", "line": {"width": 1}}),
             row=1, col=1)
+
+    if plan:
+        for level, label, color in ((plan.target, "Target", "#1a9850"), (plan.entry, "Entry", "#555"),
+                                    (plan.stop, "Stop-loss", "#d73027")):
+            fig.add_hline(y=level, line={"width": 1.3, "dash": "dash", "color": color}, row=1, col=1,
+                          annotation_text=f"{label} {level:,.2f}", annotation_position="top left",
+                          annotation_font_color=color)
 
     fig.add_trace(go.Bar(x=x, y=bars["Volume"], name="Volume", marker_color="#9aa5b1",
                          showlegend=False), row=2, col=1)

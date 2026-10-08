@@ -61,8 +61,22 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 99 tests, no network needed
+pytest                      # 140 tests, no network needed
 ```
+
+## Chat page
+
+A local web page where you ask questions in plain English:
+
+```bash
+pip install -e ".[app]"
+streamlit run scripts/app.py        # opens http://localhost:8501
+```
+
+- **Stocks:** "How is TCS.NS doing?" runs the checked trend analysis (turn on "Include news" for headlines too).
+- **Portfolio:** upload a holdings CSV exported from your broker app (Zerodha, Groww...). Weights, concentration and P&L are computed in Python; ask "Is my portfolio diversified?" for an explanation that is numerically checked.
+- **Concepts:** "What is RSI?" gets a tutor-style answer, labelled as not checked against data.
+- The page can't place orders, and nothing it imports can reach a broker. On a laptop, an answer takes 1–3 minutes with a local model.
 
 ## Run
 

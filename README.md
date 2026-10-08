@@ -68,7 +68,9 @@ pytest                      # 202 tests, no network needed
 
 ## The page
 
-A local web page with two tabs. Start it with:
+**On Windows:** double-click `FinTray.bat` in the project folder (or a desktop shortcut to it). It opens FinTray in your browser; close its window to stop.
+
+Otherwise, start it with:
 
 ```bash
 pip install -e ".[app]"

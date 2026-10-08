@@ -22,7 +22,7 @@ def _paths(obj, prefix=""):
 def test_prompt_versions():
     from fin_agent.llm.prompts import PORTFOLIO_PROMPT_VERSION, TUTOR_PROMPT_VERSION
     assert (TREND_PROMPT_VERSION, PORTFOLIO_PROMPT_VERSION, TUTOR_PROMPT_VERSION) == \
-        ("trend-v6", "portfolio-v2", "tutor-v2")
+        ("trend-v7", "portfolio-v2", "tutor-v2")
 
 
 def test_every_field_the_prompt_names_exists_in_the_snapshot():
@@ -37,8 +37,8 @@ def test_every_field_the_prompt_names_exists_in_the_snapshot():
 def test_prompt_rules_from_the_audit_are_present():
     for phrase in ("rsi_zone", "ma_order", "macd_above_signal", "no textbook thresholds",
                    "not whether buyers or sellers led", "describe the past", "excluded_fields",
-                   UNRELIABLE_TREND, "one decimal place", "nearest_level_above", "not with words like",
-                   "under 200 words"):
+                   UNRELIABLE_TREND, "one decimal place", "not with words like", "uses only the close",
+                   "under 170 words", "reversal", "Do not predict"):
         assert phrase in TREND_SYSTEM, phrase
 
 

@@ -10,6 +10,8 @@ a value, round it oddly, or "helpfully" compute a new one. These checks catch th
   of the source value it traces to.
 - check_levels: a level called "support" (a floor) must be below the close, and "resistance"
   (a ceiling) above it. The trend-v5 audit found "support at sma20" for an sma20 above the close.
+- check_macd: "MACD is positive" must match the sign of the value, and a crossover that has already
+  happened must not be called "potential" (trend-v5 and v6 audits).
 - check_citations: every bullet in a news digest must cite items that exist.
 
 An "unverified" number is not necessarily wrong. It means a human should look.
@@ -55,11 +57,11 @@ class NumberCheck:
     total: int
     unverified: list[str] = field(default_factory=list)
     direction_mismatches: list[str] = field(default_factory=list)   # e.g. "rose 12.3% (source is negative)"
-    level_mismatches: list[str] = field(default_factory=list)       # e.g. "support at sma20 (above the close)"
+    fact_mismatches: list[str] = field(default_factory=list)        # e.g. "support at sma20 (above the close)"
 
     @property
     def ok(self) -> bool:
-        return not self.unverified and not self.direction_mismatches and not self.level_mismatches
+        return not self.unverified and not self.direction_mismatches and not self.fact_mismatches
 
     def summary(self) -> str:
         if self.ok:
@@ -73,9 +75,9 @@ class NumberCheck:
         if self.direction_mismatches:
             parts.append(f"Direction check: {len(self.direction_mismatches)} figure(s) state the opposite "
                          f"direction to the source data: {'; '.join(self.direction_mismatches)}.")
-        if self.level_mismatches:
-            parts.append(f"Level check: {len(self.level_mismatches)} level(s) called support or resistance "
-                         f"on the wrong side of the close: {'; '.join(self.level_mismatches)}.")
+        if self.fact_mismatches:
+            parts.append(f"Fact check: {len(self.fact_mismatches)} statement(s) contradict the data: "
+                         f"{'; '.join(self.fact_mismatches)}.")
         return " ".join(parts) + " Review before trusting."
 
 
@@ -282,6 +284,43 @@ def check_levels(text: str, snapshot: dict[str, Any]) -> list[str]:
                 continue
             if note not in out:
                 out.append(note)
+    return out
+
+
+# ---------------------------------------------------------------- MACD statements
+
+_MACD_SIGN = re.compile(
+    r"\b(?P<subject>MACD(?:\s+line)?|(?:MACD\s+)?histogram)(?:\s*\([^)]*\))?\s+"
+    r"(?:is|was|remains|stays)\s+(?:still\s+)?(?P<sign>positive|negative)\b", re.IGNORECASE)
+_POTENTIAL_CROSS = re.compile(
+    r"\b(?:potential|possible|upcoming|impending|likely)\s+(?P<kind>bullish\s+|bearish\s+)?(?:MACD\s+)?crossover",
+    re.IGNORECASE)
+
+
+def check_macd(text: str, snapshot: dict[str, Any]) -> list[str]:
+    """MACD statements that contradict the snapshot. Narrow on purpose: only "MACD [line] is
+    positive/negative", "histogram is positive/negative" and "potential [bullish|bearish] crossover"."""
+    macd = snapshot.get("macd") or {}
+    out: list[str] = []
+    for m in _MACD_SIGN.finditer(text):
+        key = "hist" if "histogram" in m.group("subject").lower() else "macd"
+        value = macd.get(key)
+        if not isinstance(value, (int, float)) or value == 0:
+            continue
+        said_positive = m.group("sign").lower() == "positive"
+        if said_positive != (value > 0):
+            note = f"'{m.group(0)}' ({'histogram' if key == 'hist' else 'MACD'} is {value})"
+            if note not in out:
+                out.append(note)
+    above = snapshot.get("macd_above_signal")
+    if above is not None:
+        for m in _POTENTIAL_CROSS.finditer(text):
+            kind = (m.group("kind") or "").strip().lower()
+            if (above and kind != "bearish") or (not above and kind == "bearish"):
+                where = "above" if above else "below"
+                note = f"'{m.group(0)}' (the MACD line is already {where} its signal line)"
+                if note not in out:
+                    out.append(note)
     return out
 
 

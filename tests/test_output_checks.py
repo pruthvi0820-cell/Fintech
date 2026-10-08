@@ -160,9 +160,9 @@ def test_missing_levels_and_close_are_safe():
 
 
 def test_level_mismatch_makes_the_check_fail_and_is_summarised():
-    chk = NumberCheck(total=3, level_mismatches=["support at sma20 (2115.155 is above the close 2076.0)"])
+    chk = NumberCheck(total=3, fact_mismatches=["support at sma20 (2115.155 is above the close 2076.0)"])
     assert not chk.ok
-    assert "Level check: 1 level(s)" in chk.summary() and "Review before trusting." in chk.summary()
+    assert "Fact check: 1 statement(s)" in chk.summary() and "Review before trusting." in chk.summary()
 
 
 def test_trend_pipeline_runs_the_level_check(monkeypatch):
@@ -186,5 +186,5 @@ def test_trend_pipeline_runs_the_level_check(monkeypatch):
             return LLMResult("The 20-day average is the nearest support.", "m", 1, 1, False)
 
     report = trend.build_trend_report("X.NS", client=Client())
-    assert report.check.level_mismatches and report.check.level_mismatches[0].startswith("support at sma20")
-    assert "Level check" in report.to_markdown()
+    assert report.check.fact_mismatches and report.check.fact_mismatches[0].startswith("support at sma20")
+    assert "Fact check" in report.to_markdown()

@@ -174,3 +174,12 @@ def test_cache_key_normalises_question_and_separates_what_matters():
                   cache_key("How is TCS.NS doing?", False, None, "qwen3:8b", "2026-10-09")):      # next day
         assert other != base
     assert "error" not in CACHEABLE_KINDS and "notice" not in CACHEABLE_KINDS
+
+
+def test_stock_answer_adds_the_code_written_levels_section():
+    snap = {"rsi14": 43.2, "trend_label": "downtrend", "data_quality": {"large_daily_moves": [], "excluded_fields": []},
+            "nearest_level_above": {"name": "sma20", "value": 1221.485}, "nearest_level_below": None,
+            "trend_label_change": {"close_must_go": "above", "level": "sma50", "value": 1273.33, "new_label": "mixed"}}
+    a = answer("How is RELIANCE.NS doing?", FakeClient(), trend_builder=fake_trend(snapshot=snap))
+    assert "What would change this read" in a.markdown and "1,221.485" in a.markdown
+    assert "not by the AI" in a.markdown

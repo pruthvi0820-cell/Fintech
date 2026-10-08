@@ -201,6 +201,47 @@ def data_warning(snapshot: dict[str, Any]) -> str | None:
     return text
 
 
+_LEVEL_LABELS = {"sma20": "20-day average (sma20)", "sma50": "50-day average (sma50)",
+                 "sma200": "200-day average (sma200)", "high_52w": "52-week high", "low_52w": "52-week low"}
+
+
+def _price(v: float) -> str:
+    """As stored in the snapshot (up to 4 decimals), with thousands separators: 1221.485 -> 1,221.485."""
+    return f"{v:,.4f}".rstrip("0").rstrip(".")
+
+
+def levels_text(snapshot: dict[str, Any]) -> str | None:
+    """The "What would change this read" section, written by code from the snapshot.
+
+    The trend-v6 audit showed qwen3:8b copying example sentences into the wrong stocks (10 of 14
+    wrong sentences were in this section), so the model no longer writes it. None if the snapshot
+    has no level facts (e.g. a hand-built test snapshot).
+    """
+    if "nearest_level_above" not in snapshot or "trend_label" not in snapshot:
+        return None
+    excluded = (snapshot.get("data_quality") or {}).get("excluded_fields") or []
+
+    def side(key: str, word: str) -> str:
+        lvl = snapshot.get(key)
+        if lvl:
+            return f"- Nearest level {word} the close: {_LEVEL_LABELS.get(lvl['name'], lvl['name'])} at {_price(lvl['value'])}."
+        removed = [f for f in ("high_52w", "low_52w", "sma.20", "sma.50", "sma.200") if f in excluded]
+        why = " (some levels were removed because of a corporate action)" if removed else ""
+        return f"- No level {word} the close in this data{why}."
+
+    label, change = snapshot["trend_label"], snapshot.get("trend_label_change")
+    if change:
+        last = (f'- The trend label changes from "{label}" to "{change["new_label"]}" only if the close goes '
+                f'{change["close_must_go"]} the {_LEVEL_LABELS[change["level"]]} at {_price(change["value"])}. '
+                "A close past any other level leaves the label as it is.")
+    elif label in (UNRELIABLE_TREND, "insufficient_history"):
+        last = "- The trend label cannot be judged from this data, so no single level changes it."
+    else:
+        last = "- No single close changes the trend label in this data."
+    return "\n".join(["**What would change this read** _(written by code from the data, not by the AI)_",
+                      side("nearest_level_above", "above"), side("nearest_level_below", "below"), last])
+
+
 def classify_trend(close: float, sma50: float | None, sma200: float | None) -> str:
     """Classic moving-average stack. Crude on purpose: transparent beats clever."""
     if sma50 is None or sma200 is None:

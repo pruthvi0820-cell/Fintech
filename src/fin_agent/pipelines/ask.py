@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 import requests
 
-from fin_agent.analysis.indicators import data_warning
+from fin_agent.analysis.indicators import data_warning, levels_text
 from fin_agent.analysis.output_checks import check_numbers
 from fin_agent.data.market_data import MarketDataError
 from fin_agent.data.news_sources import TICKER_ALIASES, get_sources
@@ -107,6 +107,8 @@ def _stock(ticker: str, client: LLMClient, include_news: bool,
     if t.truncated:
         parts += [f"> {TRUNCATION_WARNING}", ""]
     parts += [safe_model_text(t.analysis), ""]
+    if levels := levels_text(t.snapshot):
+        parts += [esc(levels), ""]
     if t.check:
         parts += [f"> {esc(t.check.summary())}", ""]
     footers = [t.footer]

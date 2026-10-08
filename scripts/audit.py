@@ -17,7 +17,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from fin_agent.analysis.indicators import data_warning
+from fin_agent.analysis.indicators import data_warning, levels_text
 from fin_agent.data.market_data import MarketDataError
 from fin_agent.llm.base import TRUNCATION_WARNING
 from fin_agent.llm.factory import client_from_env
@@ -72,12 +72,14 @@ def main() -> int:
             parts += [f"> {TRUNCATION_WARNING}", ""]
         if r.check:
             parts += [f"> {r.check.summary()}", ""]
-            mismatches += len(r.check.direction_mismatches) + len(r.check.level_mismatches)
+            mismatches += len(r.check.direction_mismatches) + len(r.check.fact_mismatches)
         if warning := data_warning(r.snapshot):
             parts += [f"> {warning}", ""]
         for s in sentences(r.analysis or ""):
             parts.append(f"- [ ] wrong  [ ] vague | {s}  \n  note:")
             total += 1
+        if levels := levels_text(r.snapshot):
+            parts += ["", "Written by code, not reviewed:", "", levels]
         parts += ["", "<details><summary>Snapshot JSON</summary>", "", "```json"]
         parts += [json.dumps(r.snapshot, indent=2), "```", "</details>", ""]
 

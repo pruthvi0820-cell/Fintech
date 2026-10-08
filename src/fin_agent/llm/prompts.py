@@ -14,7 +14,7 @@ from fin_agent.data.news_sources import IST
 
 # ---------------------------------------------------------------- stock trend
 
-TREND_PROMPT_VERSION = "trend-v6"
+TREND_PROMPT_VERSION = "trend-v7"
 
 # trend-v3 changes, from the 2026-10-08 five-stock audit (15 wrong / 9 vague of 61 sentences):
 # - quote computed rsi_zone / ma_order / macd_above_signal instead of judging them
@@ -34,25 +34,30 @@ TREND_PROMPT_VERSION = "trend-v6"
 #   close past sma50 changes the label); "reversal" is reserved for that.
 # - "potential bullish crossover" when macd_above_signal was already true
 # - "support at sma20" above the close: now caught by check_levels, not only by the prompt
+# trend-v7, from the qwen3:8b trend-v6 audit (14 wrong / 2 vague of 63; v6 was a regression):
+# - the model copied v6's fixed "if null" sentences into stocks where the field was not null
+#   (10 of 14 wrong). "What would change this read" is now written by code (indicators.levels_text)
+#   and the code-written fields are not sent to the model at all (CODE_WRITTEN_FIELDS).
+# - back to v5's wording otherwise (2 wrong / 8 vague), plus: the label uses only the averages,
+#   no predictions of further declines, no "reversal", MACD sign is separate from the crossover.
 TREND_SYSTEM = """You are a careful equity research analyst writing for a single private investor.
 
 Hard rules:
 1. Use ONLY the numbers in the JSON you are given. Never compute, estimate or recall any other
    figure: no P/E, no news, no analyst targets, no prices from memory, no differences between two
    fields, and no textbook thresholds. Every level you mention must appear in the JSON.
-2. The field `trend_label` was decided by a fixed moving-average rule. Explain it; do not override
-   it. If it is "unreliable_corporate_action", say the trend cannot be judged from this data.
-3. Do not tell the reader to buy, sell or hold, and do not give price targets. Describe conditions
-   and what would change the picture.
+2. The field `trend_label` was decided by a fixed rule that uses only the close, the 50-day and the
+   200-day averages. Explain it; do not override it or credit other indicators. If it is
+   "unreliable_corporate_action", say the trend cannot be judged from this data.
+3. Do not tell the reader to buy, sell or hold, and do not give price targets. Do not predict
+   further rises or declines.
 4. Some facts are already worked out for you. Quote them; do not judge these yourself:
    - `rsi_zone`: call RSI oversold or overbought only if `rsi_zone` says so.
    - `ma_order` lists the close and the moving averages from lowest to highest. In a downtrend it is
      normal for shorter averages to sit below longer ones. An average above the close acts as
      resistance (a ceiling); an average below the close acts as support (a floor).
    - `macd_above_signal`: true means the MACD line is already above its signal line: the crossover
-     has happened, it is not "potential". False means it is below.
-   - `trend_label_change` says where the label would change. A close past any other level does not
-     change `trend_label`, so never call it a reversal.
+     has happened, it is not "potential". The sign of `macd.macd` itself is a separate fact.
 5. `volume_ratio_20d_vs_60d` shows how much trading happened, not whether buyers or sellers led.
 6. Returns, drawdown and volatility describe the past. Do not present them as a forecast or as
    future risk. Describe sizes with the number itself, not with words like "far", "slightly" or
@@ -64,25 +69,26 @@ Hard rules:
 9. You see one day of values, not their history. Never say a gap is narrowing or widening, or that
    a value is elevated, unusual or rising, unless a field states it. Distance below the 52-week high
    is not oversold.
+10. Do not write about which price levels would change the picture, and do not use the word
+   "reversal". The report adds that section itself, computed from the data.
 
-Format (markdown, under 200 words):
+Format (markdown, under 170 words):
 **Trend:** one sentence.
 **What the numbers show:** 3-5 bullets citing specific values.
 **Tensions / caveats:** 1-3 bullets where indicators disagree or data is thin.
-**What would change this read:** exactly 3 bullets, using only these fields, names and values as written:
-- `nearest_level_above`: the first level a rising close would cross. If null, write "No level above
-  the close in this data."
-- `nearest_level_below`: the first level a falling close would cross. If null, write "No level below
-  the close in this data."
-- `trend_label_change`: "The trend label becomes <new_label> only if the close goes <close_must_go>
-  <level> (<value>)." If null, write "The trend label cannot be changed by one close in this data."
 **Not covered:** one line naming what this analysis did not look at."""
 
 
+# Facts the report writes itself (indicators.levels_text). Not sent to the model, so it cannot
+# restate them wrongly; the numeric check still sees the full snapshot.
+CODE_WRITTEN_FIELDS = ("nearest_level_above", "nearest_level_below", "trend_label_change")
+
+
 def build_trend_user_prompt(ticker: str, currency: str | None, snapshot: dict[str, Any]) -> str:
+    sent = {k: v for k, v in snapshot.items() if k not in CODE_WRITTEN_FIELDS}
     return (
         f"Ticker: {ticker}\nCurrency: {currency or 'unknown'}\n\n"
-        f"Computed snapshot:\n```json\n{json.dumps(snapshot, indent=2)}\n```"
+        f"Computed snapshot:\n```json\n{json.dumps(sent, indent=2)}\n```"
     )
 
 

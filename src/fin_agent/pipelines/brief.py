@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from urllib.parse import quote, urlsplit
 
-from fin_agent.analysis.indicators import data_warning
+from fin_agent.analysis.indicators import data_warning, levels_text
 from fin_agent.data.news_sources import TICKER_ALIASES, get_sources
 from fin_agent.llm.base import TRUNCATION_WARNING
 from fin_agent.pipelines.news import NewsDigest, build_news_digest
@@ -83,6 +83,8 @@ class StockBrief:
         if t.analysis and t.truncated:
             out += [f"> {TRUNCATION_WARNING}", ""]
         out += [safe_model_text(t.analysis) if t.analysis else "_AI analysis skipped (--no-llm)._", ""]
+        if levels := levels_text(t.snapshot):
+            out += [esc(levels), ""]
         if t.check:
             out += [f"> {esc(t.check.summary())}", ""]
 

@@ -132,8 +132,13 @@ def chart_tab() -> None:
         st.info(f"Last candle pattern: {pattern}")
 
     plan = trade_plan_section(bars, cost / 100)
-    st.plotly_chart(candle_chart(bars, f"{hist.ticker} — daily candles", result, plan),
-                    use_container_width=True)
+    try:
+        fig = candle_chart(bars, f"{hist.ticker} — daily candles", result, plan)
+    except ImportError:
+        st.error('The chart library is not installed. Stop the page (Ctrl+C) and run:  pip install -e ".[app]"  '
+                 "then start it again. Everything else on this page works without it.")
+    else:
+        st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("How these rules did on this stock (backtest)")
     st.caption(f"{result.start} to {result.end}. Buy at the next day's open when at least {entry} buy "

@@ -68,7 +68,7 @@ def test_gap_warning_is_always_present():
     ({"capital": 100_000, "risk_pct": 0}, "above 0%"),
     ({"capital": 100_000, "stop_atr": 10}, "between 0.5 and 6"),
     ({"capital": 100_000, "reward_risk": 0.1}, "Reward-to-risk"),
-    ({"capital": 500}, "smaller than the risk of one share"),
+    ({"capital": 500}, r"budget is ₹5\.00 \(1% of ₹500 capital\), but one share risks"),
     ({"capital": 100_000, "entry": -5}, "above 0"),
 ], ids=["zero-capital", "nan-capital", "risk-too-high", "risk-zero", "stop-too-wide", "rr-too-low",
         "budget-too-small", "negative-entry"])

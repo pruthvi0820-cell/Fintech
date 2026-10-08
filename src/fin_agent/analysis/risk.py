@@ -101,8 +101,9 @@ def plan_trade(
     by_cap = math.floor(capital * max_position_pct / entry)
     shares = min(by_risk, by_cap)
     if shares < 1:
-        raise PlanError(f"Your risk budget (₹{capital * risk_pct:,.0f}) is smaller than the risk of one share "
-                        f"(₹{risk_per_share:,.2f}). Increase capital or risk %, or pick a cheaper stock.")
+        raise PlanError(f"Your risk budget is ₹{capital * risk_pct:,.2f} ({risk_pct * 100:g}% of ₹{capital:,.0f} "
+                        f"capital), but one share risks ₹{risk_per_share:,.2f}. Check the capital box, "
+                        "raise risk %, or pick a cheaper stock.")
 
     target = entry + reward_risk * (entry - stop)
     max_loss = shares * risk_per_share

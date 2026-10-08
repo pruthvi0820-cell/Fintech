@@ -111,3 +111,14 @@ def test_trade_plan_shows_size_stop_and_target_and_reacts_to_capital(app):
     app.number_input(key="capital").set_value(0.0).run()
     assert any("trading capital" in w.value for w in app.warning)
     assert not app.exception
+
+
+def test_missing_chart_library_shows_install_hint_not_a_crash(app, monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, "plotly", None)          # makes "import plotly..." raise ImportError
+    monkeypatch.setitem(sys.modules, "plotly.subplots", None)
+    app.run()
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    assert any('pip install -e ".[app]"' in e.value for e in app.error)
+    assert any(m.label == "Buy shares" for m in app.metric)   # the rest of the tab still works

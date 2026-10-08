@@ -96,3 +96,25 @@ def test_numbers_from_text_sources_never_flag_direction():
     src = "[1] (ET | 2026-10-07 10:00 IST) Sensex falls 1.2% as banks drag"
     assert check_numbers("The Sensex fell 1.2% [1].", src).ok
     assert check_numbers("The Sensex rose 1.2% [1].", src).direction_mismatches == []
+
+
+# ---- lists of window lengths are names, not values (trend-v4 audit false positive)
+
+@pytest.mark.parametrize("text", [
+    "The close is below all three SMAs (20, 50, 200).",
+    "Price sits under the 20, 50 and 200-day averages.",
+    "The 20/50/200-day averages slope down.",
+    "Below the SMAs (20, 50 and 200).",
+])
+def test_window_length_lists_are_not_checked(text):
+    res = check_numbers(text, {"rsi14": 41.2})
+    assert res.unverified == [] and res.total == 0
+
+
+@pytest.mark.parametrize(("text", "flagged"), [
+    ("A price of (1,200) is not a list.", ["1,200"]),
+    ("RSI (45, 50) moved.", ["45", "50"]),
+    ("Levels 20, 50 and 200 matter.", ["20", "50", "200"]),   # no unit, no brackets: still checked
+])
+def test_window_list_skip_stays_narrow(text, flagged):
+    assert check_numbers(text, {"rsi14": 41.2}).unverified == flagged

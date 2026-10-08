@@ -139,10 +139,29 @@ def ma_order(close: float | None, sma: dict[str, float | None]) -> str | None:
     return out
 
 
+def nearest_levels(close: float | None, levels: dict[str, float | None]
+                   ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """The closest level strictly above and strictly below the close, as {"name", "value"}.
+
+    None means no level exists on that side in this data (e.g. the close is the 52-week low).
+    Computed here because the model, asked for "the nearest level above and below", invented
+    "if the close falls below the 200-day" when the close was already below it (2026-10-08 audit).
+    """
+    if close is None:
+        return None, None
+    present = [(v, name) for name, v in levels.items() if v is not None]
+    above = min(((v, n) for v, n in present if v > close), default=None)
+    below = max(((v, n) for v, n in present if v < close), default=None)
+    return tuple(None if hit is None else {"name": hit[1], "value": hit[0]} for hit in (above, below))
+
+
 def _add_derived_facts(snap: dict[str, Any]) -> None:
     """Facts derived from (possibly guarded) values, so a removed input yields None, not a guess."""
     snap["rsi_zone"] = rsi_zone(snap["rsi14"])
     snap["ma_order"] = ma_order(snap["last_close"], snap["sma"])
+    levels = {f"sma{k}": v for k, v in snap["sma"].items()}
+    levels.update(high_52w=snap["high_52w"], low_52w=snap["low_52w"])
+    snap["nearest_level_above"], snap["nearest_level_below"] = nearest_levels(snap["last_close"], levels)
     m = snap["macd"]
     snap["macd_above_signal"] = None if m["macd"] is None or m["signal"] is None else m["macd"] > m["signal"]
 

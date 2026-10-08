@@ -147,3 +147,39 @@ def test_derived_facts_in_snapshot_and_after_guard():
 def test_ma_order_names_do_not_whitelist_invented_numbers():
     snap = {"ma_order": "close < sma20 < sma50 < sma200", "rsi14": 45.6}
     assert check_numbers("A move in RSI above 50 would matter.", snap).unverified == ["50"]
+
+
+# ---- nearest levels (trend-v5): computed so the model never invents a crossing that already happened
+
+from fin_agent.analysis.indicators import nearest_levels  # noqa: E402
+
+
+def test_nearest_levels_for_a_downtrend_audit_case():
+    # TCS-like: close below every SMA, above the 52-week low.
+    levels = {"sma20": 2127.945, "sma50": 2262.424, "sma200": 2448.08, "high_52w": 2900.0, "low_52w": 2050.0}
+    above, below = nearest_levels(2100.0, levels)
+    assert above == {"name": "sma20", "value": 2127.945}
+    assert below == {"name": "low_52w", "value": 2050.0}
+
+
+def test_nearest_levels_none_side_missing_values_and_ties():
+    assert nearest_levels(100.0, {"sma20": 90.0, "high_52w": 100.0, "low_52w": None}) == \
+        (None, {"name": "sma20", "value": 90.0})          # a level equal to the close is on neither side
+    assert nearest_levels(None, {"sma20": 90.0}) == (None, None)
+    assert nearest_levels(100.0, {}) == (None, None)
+
+
+def test_nearest_levels_in_snapshot_use_guarded_values():
+    snap = compute_snapshot(make_bars(np.linspace(200, 100, 300)))
+    assert snap["nearest_level_above"]["name"] == "sma20"
+    assert snap["nearest_level_above"]["value"] == snap["sma"]["20"]
+    assert snap["nearest_level_below"] is None             # the close is the 52-week low
+    guarded = compute_snapshot(gap_bars(30))
+    for side in ("nearest_level_above", "nearest_level_below"):
+        lvl = guarded[side]
+        assert lvl is None or lvl["name"] not in ("sma50", "sma200", "high_52w", "low_52w")
+
+
+def test_nearest_level_names_do_not_whitelist_invented_numbers():
+    snap = {"nearest_level_above": {"name": "sma200", "value": 2448.08}, "nearest_level_below": None}
+    assert check_numbers("A close above 200 would matter.", snap).unverified == ["200"]

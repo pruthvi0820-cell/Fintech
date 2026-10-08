@@ -27,6 +27,10 @@ _NUM = re.compile(r"(?<![\w.])[-+−]?(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?")
 # They are skipped only in that context, so "RSI near 60" is still checked.
 _WINDOW_INTS = {1, 3, 6, 9, 12, 14, 20, 26, 50, 52, 60, 200, 252}
 _UNIT_AFTER = re.compile(r"\s?-?\s?(?:day|week|month|year|period|session|bar|DMA|SMA|EMA|[dwmy]\b)", re.IGNORECASE)
+# A list of window lengths: "SMAs (20, 50, 200)", "20, 50 and 200-day". Separators need a space
+# after a comma, so "(1,200)" (a price with a thousands separator) is never read as a list.
+_WINDOW_LIST = re.compile(r"(?<![\w.,])\d{1,3}-?(?:(?:\s*/\s*|\s*&\s*|,\s+(?:and\s+|or\s+)?|\s+(?:and|or)\s+)"
+                          r"\d{1,3}-?)+(?![\w.]|,\d)")
 
 # Direction check. Only percentages are checked: price levels have no sign, so "below its
 # 50-day average of 1,398.2" must never be flagged.
@@ -83,6 +87,18 @@ def _is_window_label(text: str, m: re.Match) -> bool:
         return False
     after, before = text[m.end():m.end() + 12], text[max(0, m.start() - 1):m.start()]
     return bool(_UNIT_AFTER.match(after)) or (before == "(" and after.startswith(")"))
+
+
+def _window_list_spans(text: str) -> list[tuple[int, int]]:
+    """Spans of lists made only of window lengths, either in brackets or followed by a unit."""
+    spans = []
+    for m in _WINDOW_LIST.finditer(text):
+        if any(int(n) not in _WINDOW_INTS for n in re.findall(r"\d+", m.group(0))):
+            continue
+        bracketed = text[max(0, m.start() - 1):m.start()] == "(" and text[m.end():m.end() + 1] == ")"
+        if bracketed or _UNIT_AFTER.match(text, m.end()):
+            spans.append(m.span())
+    return spans
 
 
 def _to_float(s: str) -> float:
@@ -186,10 +202,11 @@ def check_numbers(text: str, source: Any) -> NumberCheck:
     clean = _strip(text)
     total, unverified, mismatches = 0, [], []
     prev_end = 0
+    window_lists = _window_list_spans(clean)
     for m in _NUM.finditer(clean):
         n, start_of_clause = m.group(0), prev_end
         prev_end = m.end()
-        if _is_window_label(clean, m):
+        if _is_window_label(clean, m) or any(a <= m.start() < b for a, b in window_lists):
             continue
         if "." not in n and 1900 <= abs(_to_float(n)) <= 2100:   # years
             continue

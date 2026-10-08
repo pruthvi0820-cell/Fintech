@@ -33,6 +33,10 @@ FIELD_WINDOWS: dict[str, int] = {
 }
 UNRELIABLE_TREND = "unreliable_corporate_action"
 
+# Conventional RSI zones. Stated as text so the model quotes a computed fact instead of judging
+# "oversold" itself (the 2026-10-08 audit found RSI 37-46 called oversold three times).
+RSI_OVERSOLD, RSI_OVERBOUGHT = 30, 70
+
 
 def sma(s: pd.Series, n: int) -> pd.Series:
     return s.rolling(n, min_periods=n).mean()
@@ -108,6 +112,39 @@ def _exclude_distorted(snap: dict[str, Any], bars_ago: int) -> list[str]:
         if any(p in removed for p in ("sma.50", "sma.200")):
             snap["trend_label"] = UNRELIABLE_TREND
     return removed
+
+
+def rsi_zone(value: float | None) -> str | None:
+    if value is None:
+        return None
+    if value < RSI_OVERSOLD:
+        return f"oversold (below {RSI_OVERSOLD})"
+    if value > RSI_OVERBOUGHT:
+        return f"overbought (above {RSI_OVERBOUGHT})"
+    return f"neutral ({RSI_OVERSOLD} to {RSI_OVERBOUGHT})"
+
+
+def ma_order(close: float | None, sma: dict[str, float | None]) -> str | None:
+    """Price and moving averages from lowest to highest, e.g. "close < sma20 < sma50 < sma200".
+
+    Names carry no standalone digits, so the numeric check still treats an invented "50" as a claim.
+    """
+    levels = [("close", close)] + [(f"sma{k}", v) for k, v in sma.items()]
+    present = sorted(((v, name) for name, v in levels if v is not None))
+    if len(present) < 2:
+        return None
+    out = present[0][1]
+    for (prev, _), (val, name) in zip(present, present[1:]):
+        out += f" {'=' if val == prev else '<'} {name}"
+    return out
+
+
+def _add_derived_facts(snap: dict[str, Any]) -> None:
+    """Facts derived from (possibly guarded) values, so a removed input yields None, not a guess."""
+    snap["rsi_zone"] = rsi_zone(snap["rsi14"])
+    snap["ma_order"] = ma_order(snap["last_close"], snap["sma"])
+    m = snap["macd"]
+    snap["macd_above_signal"] = None if m["macd"] is None or m["signal"] is None else m["macd"] > m["signal"]
 
 
 def data_warning(snapshot: dict[str, Any]) -> str | None:
@@ -187,4 +224,5 @@ def compute_snapshot(bars: pd.DataFrame) -> dict[str, Any]:
     bars_ago = _bars_since_last_large_move(close)
     if bars_ago is not None:
         snap["data_quality"]["excluded_fields"] = _exclude_distorted(snap, bars_ago)
+    _add_derived_facts(snap)
     return snap

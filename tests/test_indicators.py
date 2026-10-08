@@ -111,3 +111,39 @@ def test_warning_text_is_written_by_code():
     w = data_warning(compute_snapshot(gap_bars(248)))
     assert w.startswith("**Data warning:**") and "-40.0% on" in w
     assert "not a real crash" in w and "returns.1y" in w
+
+
+# ---- derived facts the model quotes instead of judging
+
+from fin_agent.analysis.indicators import ma_order, rsi_zone  # noqa: E402
+from fin_agent.analysis.output_checks import check_numbers  # noqa: E402
+
+
+@pytest.mark.parametrize(("value", "zone"), [
+    (29.9, "oversold (below 30)"), (37.52, "neutral (30 to 70)"), (45.6, "neutral (30 to 70)"),
+    (70.1, "overbought (above 70)"), (None, None),
+])
+def test_rsi_zone(value, zone):
+    assert rsi_zone(value) == zone
+
+
+def test_ma_order_matches_audit_cases():
+    # TCS 2026-10-06: a normal downtrend stack, where the 50-day sits ABOVE the 20-day.
+    assert ma_order(2100.0, {"20": 2127.945, "50": 2262.424, "200": 2448.08}) == \
+        "close < sma20 < sma50 < sma200"
+    assert ma_order(110.0, {"20": 105.0, "50": None, "200": 100.0}) == "sma200 < sma20 < close"
+    assert ma_order(None, {"20": None, "50": None, "200": None}) is None
+
+
+def test_derived_facts_in_snapshot_and_after_guard():
+    snap = compute_snapshot(make_bars(np.linspace(200, 100, 300)))
+    assert snap["ma_order"] == "close < sma20 < sma50 < sma200"
+    assert snap["rsi_zone"].startswith("oversold") and snap["macd_above_signal"] in (True, False)
+    guarded = compute_snapshot(gap_bars(30))
+    assert guarded["rsi_zone"] is None and guarded["macd_above_signal"] is None
+    assert guarded["ma_order"] == "close < sma20"
+
+
+def test_ma_order_names_do_not_whitelist_invented_numbers():
+    snap = {"ma_order": "close < sma20 < sma50 < sma200", "rsi14": 45.6}
+    assert check_numbers("A move in RSI above 50 would matter.", snap).unverified == ["50"]

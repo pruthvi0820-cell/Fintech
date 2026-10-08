@@ -21,6 +21,8 @@ class TrendReport:
     check: NumberCheck | None = None
     footer: str | None = None
     truncated: bool = False
+    model: str | None = None
+    output_tokens: int = 0
 
     @property
     def header(self) -> str:
@@ -56,6 +58,7 @@ def build_trend_report(ticker: str, period: str = "2y", client=None, on_text=Non
                               **stream)
         report.analysis = res.text
         report.truncated = res.truncated
+        report.model, report.output_tokens = res.model, res.output_tokens
         report.check = check_numbers(res.text, report.snapshot)
         report.footer = f"{res.model} | {TREND_PROMPT_VERSION} | {res.input_tokens} in / {res.output_tokens} out tokens"
     return report

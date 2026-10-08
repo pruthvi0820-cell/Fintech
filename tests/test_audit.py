@@ -22,7 +22,7 @@ def test_audit_sheet_shows_direction_mismatches(monkeypatch, tmp_path):
     text = "**Trend:** down. The stock rose 12.3% last month."
     report = SimpleNamespace(
         history=SimpleNamespace(ticker="TMPV.NS"), header="# h\nSource: test", snapshot=snap,
-        analysis=text, check=check_numbers(text, snap), truncated=False,
+        analysis=text, check=check_numbers(text, snap), truncated=False, output_tokens=120,
     )
     monkeypatch.setattr(audit, "client_from_env", lambda: object())
     monkeypatch.setattr(audit, "build_trend_report", lambda t, client: report)
@@ -33,6 +33,7 @@ def test_audit_sheet_shows_direction_mismatches(monkeypatch, tmp_path):
     sheet = next(tmp_path.glob("audit_*.md")).read_text(encoding="utf-8")
     assert "Direction check: 1 figure(s)" in sheet and "'rose 12.3%' (source is negative)" in sheet
     assert "Direction mismatches auto-flagged: 1" in sheet
+    assert "## Speed" in sheet and "120 tokens written" in sheet and "prompt trend-v4" in sheet
 
 
 def test_audit_sheet_warns_when_reply_was_cut_off(monkeypatch, tmp_path):
@@ -40,7 +41,7 @@ def test_audit_sheet_warns_when_reply_was_cut_off(monkeypatch, tmp_path):
     snap = {"data_quality": {"large_daily_moves": []}}
     report = SimpleNamespace(
         history=SimpleNamespace(ticker="TCS.NS"), header="# h\nSource: test", snapshot=snap,
-        analysis="**Trend:** mixed and", check=check_numbers("x", snap), truncated=True,
+        analysis="**Trend:** mixed and", check=check_numbers("x", snap), truncated=True, output_tokens=0,
     )
     monkeypatch.setattr(audit, "client_from_env", lambda: object())
     monkeypatch.setattr(audit, "build_trend_report", lambda t, client: report)

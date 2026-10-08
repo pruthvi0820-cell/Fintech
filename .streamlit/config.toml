@@ -1,0 +1,10 @@
+# FinTray page settings. Streamlit reads this file when started from the project folder.
+
+[server]
+# Only this computer can open the page. Without this, anyone on the same Wi-Fi could open it
+# (and see an uploaded portfolio). Remove only if you understand that risk.
+address = "localhost"
+
+[browser]
+# Don't send anonymous usage statistics to Streamlit.
+gatherUsageStats = false

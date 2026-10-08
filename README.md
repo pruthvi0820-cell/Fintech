@@ -63,7 +63,7 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 182 tests, no network needed
+pytest                      # 183 tests, no network needed
 ```
 
 ## The page
@@ -74,6 +74,8 @@ A local web page with two tabs. Start it with:
 pip install -e ".[app]"
 streamlit run scripts/app.py        # opens http://localhost:8501
 ```
+
+`.streamlit/config.toml` keeps the page private to this computer (`address = "localhost"`) and turns off Streamlit's usage statistics. Start it from the project folder so the file is picked up.
 
 **📈 Chart & signals** (swing trading, daily candles):
 - Candlestick chart with 20/50/200-day averages, volume and RSI.

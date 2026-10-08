@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from fin_agent.analysis.indicators import compute_snapshot
+from fin_agent.analysis.indicators import compute_snapshot, data_warning
 from fin_agent.analysis.output_checks import NumberCheck, check_numbers
 from fin_agent.data.market_data import PriceHistory, fetch_history
 from fin_agent.llm.base import TRUNCATION_WARNING
@@ -31,7 +31,10 @@ class TrendReport:
         )
 
     def to_markdown(self) -> str:
-        parts = [self.header, "", "```json", json.dumps(self.snapshot, indent=2), "```"]
+        parts = [self.header, ""]
+        if warning := data_warning(self.snapshot):
+            parts += [f"> {warning}", ""]
+        parts += ["```json", json.dumps(self.snapshot, indent=2), "```"]
         if self.analysis:
             if self.truncated:
                 parts += ["", f"> {TRUNCATION_WARNING}"]

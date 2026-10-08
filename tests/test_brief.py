@@ -142,3 +142,16 @@ def test_truncated_replies_are_flagged_in_every_report():
     assert "cut off at its token limit" in b.news.to_markdown()
     b.trend.truncated = b.news.truncated = False
     assert "cut off" not in b.to_markdown()
+
+
+def test_data_warning_comes_before_the_analysis_in_every_report():
+    from fin_agent.data.market_data import PriceHistory as PH
+    close = np.linspace(700, 600, 500)
+    close[-248:] *= 0.6
+    idx = pd.bdate_range("2024-10-01", periods=500, tz="UTC")
+    bars = pd.DataFrame({"Open": close, "High": close, "Low": close, "Close": close, "Volume": 1e6}, index=idx)
+    hist = PH("TMPV.NS", bars, "INR", "yfinance", NOW, idx[-1].to_pydatetime())
+    trend = TrendReport(history=hist, snapshot=compute_snapshot(bars), analysis="**Trend:** down.")
+    b = StockBrief("TMPV.NS", trend, NewsDigest(generated_at=NOW, items=[], statuses=[]))
+    for md in (b.to_markdown(), trend.to_markdown()):
+        assert md.index("**Data warning:**") < md.index("**Trend:** down.")

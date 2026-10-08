@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from urllib.parse import quote, urlsplit
 
+from fin_agent.analysis.indicators import data_warning
 from fin_agent.data.news_sources import TICKER_ALIASES, get_sources
 from fin_agent.llm.base import TRUNCATION_WARNING
 from fin_agent.pipelines.news import NewsDigest, build_news_digest
@@ -77,14 +78,13 @@ class StockBrief:
         out = [f"# {esc(t.history.ticker)} — stock brief", "", esc(t.header.split("\n", 1)[1]), ""]
 
         out += ["## 1. Trend (from computed numbers)", ""]
+        if warning := data_warning(t.snapshot):
+            out += [f"> {esc(warning)}", ""]
         if t.analysis and t.truncated:
             out += [f"> {TRUNCATION_WARNING}", ""]
         out += [safe_model_text(t.analysis) if t.analysis else "_AI analysis skipped (--no-llm)._", ""]
         if t.check:
             out += [f"> {esc(t.check.summary())}", ""]
-        flags = t.snapshot["data_quality"]["large_daily_moves"]
-        if flags:
-            out += [f"> **Data warning:** large one-day moves {flags}. Possible corporate action.", ""]
 
         out += ["## 2. Related news", ""]
         if not n.items:

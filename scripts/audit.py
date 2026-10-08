@@ -16,6 +16,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from fin_agent.analysis.indicators import data_warning
 from fin_agent.data.market_data import MarketDataError
 from fin_agent.llm.base import TRUNCATION_WARNING
 from fin_agent.llm.factory import client_from_env
@@ -63,9 +64,8 @@ def main() -> int:
         if r.check:
             parts += [f"> {r.check.summary()}", ""]
             mismatches += len(r.check.direction_mismatches)
-        flags = r.snapshot["data_quality"]["large_daily_moves"]
-        if flags:
-            parts += [f"> Data flag: large one-day moves {flags}. Check for corporate actions.", ""]
+        if warning := data_warning(r.snapshot):
+            parts += [f"> {warning}", ""]
         for s in sentences(r.analysis or ""):
             parts.append(f"- [ ] wrong  [ ] vague | {s}  \n  note:")
             total += 1

@@ -15,6 +15,23 @@ import pandas as pd
 
 TRADING_DAYS = 252
 LOOKBACKS = {"1m": 21, "3m": 63, "6m": 126, "1y": 252}
+LARGE_MOVE_THRESHOLD = 0.15
+
+# How many bars back each snapshot field looks. If a large one-day move (usually an unadjusted
+# corporate action) falls inside that window, the field is distorted and is removed from the
+# snapshot: the model cannot misuse a number it never sees. RSI and MACD use exponential averages
+# with long memory, so their windows are approximate (the move's weight has decayed below ~1%).
+FIELD_WINDOWS: dict[str, int] = {
+    **{f"returns.{k}": n for k, n in LOOKBACKS.items()},
+    "sma.20": 20, "sma.50": 50, "sma.200": 200,
+    "close_vs_sma_pct.20": 20, "close_vs_sma_pct.50": 50, "close_vs_sma_pct.200": 200,
+    "rsi14": 70,
+    "macd.macd": 100, "macd.signal": 100, "macd.hist": 100,
+    "volatility_annualized.20d": 20, "volatility_annualized.1y": 251,
+    "max_drawdown_1y": TRADING_DAYS, "high_52w": TRADING_DAYS, "low_52w": TRADING_DAYS,
+    "pct_below_52w_high": TRADING_DAYS,
+}
+UNRELIABLE_TREND = "unreliable_corporate_action"
 
 
 def sma(s: pd.Series, n: int) -> pd.Series:
@@ -54,7 +71,7 @@ def max_drawdown(close: pd.Series) -> float:
     return float((close / running_peak - 1).min())
 
 
-def large_daily_moves(close: pd.Series, threshold: float = 0.15) -> list[dict[str, Any]]:
+def large_daily_moves(close: pd.Series, threshold: float = LARGE_MOVE_THRESHOLD) -> list[dict[str, Any]]:
     """Single-day moves beyond the threshold.
 
     For large caps these are usually corporate actions (demerger, bonus, rights) that the data
@@ -64,6 +81,48 @@ def large_daily_moves(close: pd.Series, threshold: float = 0.15) -> list[dict[st
     chg = close.pct_change().dropna()
     hits = chg[chg.abs() >= threshold]
     return [{"date": ts.date().isoformat(), "change": round(float(v), 4)} for ts, v in hits.items()]
+
+
+def _bars_since_last_large_move(close: pd.Series, threshold: float = LARGE_MOVE_THRESHOLD) -> int | None:
+    """Bars between the newest large one-day move and the last bar (0 = the last bar itself)."""
+    chg = close.pct_change().to_numpy()
+    hits = np.flatnonzero(np.abs(np.nan_to_num(chg)) >= threshold)
+    return None if len(hits) == 0 else len(close) - 1 - int(hits[-1])
+
+
+def _exclude_distorted(snap: dict[str, Any], bars_ago: int) -> list[str]:
+    """Set every field whose window spans the move to None. Returns the removed field paths."""
+    removed = []
+    for path, window in FIELD_WINDOWS.items():
+        if bars_ago > window:
+            continue
+        *parents, leaf = path.split(".")
+        node = snap
+        for key in parents:
+            node = node[key]
+        if node.get(leaf) is not None:
+            node[leaf] = None
+            removed.append(path)
+    if snap["sma"]["50"] is None or snap["sma"]["200"] is None:
+        snap["sma50_above_sma200"] = None
+        if any(p in removed for p in ("sma.50", "sma.200")):
+            snap["trend_label"] = UNRELIABLE_TREND
+    return removed
+
+
+def data_warning(snapshot: dict[str, Any]) -> str | None:
+    """Plain-language warning for reports. Written by code, so it never depends on the model."""
+    dq = snapshot.get("data_quality") or {}
+    moves = dq.get("large_daily_moves") or []
+    if not moves:
+        return None
+    listed = ", ".join(f"{m['change'] * 100:+.1f}% on {m['date']}" for m in moves)
+    text = (f"**Data warning:** large one-day price move ({listed}). This is usually an unadjusted "
+            "corporate action (demerger, bonus, split), not a real crash.")
+    removed = dq.get("excluded_fields") or []
+    if removed:
+        text += f" Figures whose window spans it were removed: {', '.join(removed)}."
+    return text
 
 
 def classify_trend(close: float, sma50: float | None, sma200: float | None) -> str:
@@ -106,7 +165,7 @@ def compute_snapshot(bars: pd.DataFrame) -> dict[str, Any]:
 
     vol20, vol60 = _last(sma(volume, 20)), _last(sma(volume, 60))
 
-    return {
+    snap = {
         "as_of": bars.index[-1].isoformat(),
         "bars": len(bars),
         "last_close": round(last_close, 4),
@@ -123,5 +182,9 @@ def compute_snapshot(bars: pd.DataFrame) -> dict[str, Any]:
         "pct_below_52w_high": _r(last_close / float(year.max()) - 1),
         "volume_ratio_20d_vs_60d": None if not vol20 or not vol60 else _r(vol20 / vol60, 3),
         "trend_label": classify_trend(last_close, s50, s200),
-        "data_quality": {"large_daily_moves": large_daily_moves(close)},
+        "data_quality": {"large_daily_moves": large_daily_moves(close), "excluded_fields": []},
     }
+    bars_ago = _bars_since_last_large_move(close)
+    if bars_ago is not None:
+        snap["data_quality"]["excluded_fields"] = _exclude_distorted(snap, bars_ago)
+    return snap

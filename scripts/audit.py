@@ -25,6 +25,9 @@ from fin_agent.pipelines.trend import build_trend_report
 DEFAULT = ["RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "TMPV.NS"]
 REPORTS_DIR = Path(__file__).resolve().parent.parent / "reports"
 
+# A line that is only a bold section heading ("**What the numbers show:**") is not a claim to review.
+_HEADING_ONLY = re.compile(r"^\*\*[^*]+:?\*\*:?$")
+
 INSTRUCTIONS = """How to audit: for every sentence, tick **wrong** (contradicts the JSON or overclaims)
 or **vague** (true but says nothing you could act on or check). Leave both blank if it is fine.
 Add a short note after `note:` when the reason is not obvious. Then tally at the bottom."""
@@ -34,7 +37,7 @@ def sentences(text: str) -> list[str]:
     out = []
     for line in text.splitlines():
         line = re.sub(r"^\s*(?:[-*]|\d+\.)\s+", "", line).strip()
-        if not line:
+        if not line or _HEADING_ONLY.match(line):
             continue
         out += [s.strip() for s in re.split(r"(?<=[.!?])\s+(?=[A-Z*\[(])", line) if s.strip()]
     return out

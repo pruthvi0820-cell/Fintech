@@ -48,3 +48,12 @@ def test_audit_sheet_warns_when_reply_was_cut_off(monkeypatch, tmp_path):
     monkeypatch.setattr(audit.sys, "argv", ["audit.py", "TCS.NS"])
     audit.main()
     assert "cut off at its token limit" in next(tmp_path.glob("audit_*.md")).read_text(encoding="utf-8")
+
+
+def test_section_headings_are_not_counted_as_sentences():
+    audit = load_audit()
+    text = ("**Trend:** The stock is in a downtrend.\n\n**What the numbers show:**  \n"
+            "- RSI is 45.6.\n**Tensions / caveats:**\n- None.\n**Not covered:** Fundamentals.")
+    assert audit.sentences(text) == [
+        "**Trend:** The stock is in a downtrend.", "RSI is 45.6.", "None.", "**Not covered:** Fundamentals.",
+    ]

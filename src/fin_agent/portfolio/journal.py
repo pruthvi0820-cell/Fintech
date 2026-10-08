@@ -81,7 +81,11 @@ class Journal:
 
     # ------------------------------------------------------------------ writing
     def log_decision(self, ticker: str, decision: str, price: float, reason: str,
-                     signals: dict[str, Any], plan: TradePlan | None = None) -> int:
+                     signals: dict[str, Any], plan: TradePlan | None = None,
+                     fill_price: float | None = None, fill_shares: int | None = None,
+                     cost_per_side: float = 0.0015) -> int:
+        """Record a decision. For 'bought', fill_price / fill_shares are what you actually got (the
+        plan used a delayed price); the risk is recomputed from them and the plan's stop-loss."""
         ticker = (ticker or "").strip().upper()
         reason = (reason or "").strip()
         if not ticker:
@@ -96,14 +100,22 @@ class Journal:
             raise JournalError("A 'bought' entry needs a trade plan (shares, stop-loss, target).")
         if not price or price <= 0:
             raise JournalError("Price must be above 0.")
+        entry, shares, risk = (plan.entry if plan else float(price)), None, None
+        if decision == "bought" and plan is not None:
+            entry = float(fill_price) if fill_price is not None else plan.entry
+            shares = int(fill_shares) if fill_shares is not None else plan.shares
+            if entry <= plan.stop:
+                raise JournalError(f"Your buy price ₹{entry:,.2f} is at or below the stop-loss ₹{plan.stop:,.2f}.")
+            if shares < 1:
+                raise JournalError("Shares bought must be at least 1.")
+            risk = round(shares * ((entry - plan.stop) + cost_per_side * (entry + plan.stop)), 2)
 
         buy_score = signals.get("buy_score")
         row = {
             "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "ticker": ticker, "decision": decision, "price": float(plan.entry if plan else price),
-            "shares": plan.shares if plan and decision == "bought" else None,
+            "ticker": ticker, "decision": decision, "price": entry, "shares": shares,
             "stop": plan.stop if plan else None, "target": plan.target if plan else None,
-            "risk_amount": plan.max_loss if plan and decision == "bought" else None,
+            "risk_amount": risk,
             "buy_score": buy_score, "sell_score": signals.get("sell_score"),
             "signal_said_buy": int(buy_score is not None and buy_score >= SIGNAL_BUY_SCORE),
             "signals_json": json.dumps({k: signals.get(k) for k in ("as_of", "buy_score", "sell_score",

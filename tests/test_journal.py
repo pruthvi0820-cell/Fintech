@@ -31,7 +31,7 @@ def test_log_bought_and_skipped(j):
 
 
 def test_close_at_target_gives_two_r_before_costs(j):
-    i = j.log_decision("TCS.NS", "bought", 100, "plan", SIG_BUY, plan())
+    i = j.log_decision("TCS.NS", "bought", 100, "plan", SIG_BUY, plan(), cost_per_side=0)
     res = j.close_trade(i, exit_price=116, exit_reason="target", cost_per_side=0)
     assert res["pnl"] == 2000.0 and res["r_multiple"] == pytest.approx(2.0)
     row = j.entries().iloc[0]
@@ -46,7 +46,7 @@ def test_costs_reduce_pnl(j):
 
 def test_stats_and_with_vs_against_signal(j):
     for sig, exit_price in ((SIG_BUY, 116), (SIG_BUY, 92), (SIG_BUY, 116), (SIG_WEAK, 92)):
-        i = j.log_decision("X.NS", "bought", 100, "r", sig, plan())
+        i = j.log_decision("X.NS", "bought", 100, "r", sig, plan(), cost_per_side=0)
         j.close_trade(i, exit_price, "target" if exit_price > 100 else "stop-loss", cost_per_side=0)
     j.log_decision("Y.NS", "bought", 100, "still open", SIG_BUY, plan())
     j.log_decision("Z.NS", "skipped", 50, "no", SIG_WEAK)
@@ -112,3 +112,19 @@ def test_default_path_respects_env(monkeypatch, tmp_path):
     assert default_path() == tmp_path / "x.sqlite3"
     monkeypatch.delenv("FIN_AGENT_JOURNAL_PATH")
     assert default_path().parts[-2:] == ("journal", "journal.sqlite3")
+
+
+def test_actual_fill_price_and_shares_recompute_risk(j):
+    i = j.log_decision("TCS.NS", "bought", 100, "got filled higher", SIG_BUY, plan(),
+                       fill_price=101.0, fill_shares=100, cost_per_side=0)
+    row = j.entries().iloc[0]
+    assert (row["price"], row["shares"], row["stop"]) == (101.0, 100, 92.0)
+    assert row["risk_amount"] == 900.0                                   # 100 x (101 - 92)
+    assert j.close_trade(i, 119, "target", cost_per_side=0)["r_multiple"] == pytest.approx(2.0)
+
+
+def test_fill_at_or_below_stop_is_refused(j):
+    with pytest.raises(JournalError, match="at or below the stop-loss"):
+        j.log_decision("TCS.NS", "bought", 100, "r", SIG_BUY, plan(), fill_price=92.0)
+    with pytest.raises(JournalError, match="at least 1"):
+        j.log_decision("TCS.NS", "bought", 100, "r", SIG_BUY, plan(), fill_shares=0)

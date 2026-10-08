@@ -61,7 +61,7 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 80 tests, no network needed
+pytest                      # 99 tests, no network needed
 ```
 
 ## Run
@@ -88,7 +88,7 @@ python scripts/audit.py      # writes reports/audit_*.md; tick wrong/vague per s
 ## Known limits
 
 - **Prices:** yfinance is unofficial and often about 15 minutes delayed. Each report prints how old the last bar is.
-- **Corporate actions:** Yahoo doesn't always adjust prices for demergers. Tata Motors became TMPV in Oct 2025, and `TATAMOTORS.NS` no longer works. Large one-day moves are flagged in `data_quality`, and Claude is told to lead with that warning.
+- **Corporate actions:** Yahoo doesn't always adjust prices for demergers. Tata Motors became TMPV in Oct 2025, and `TATAMOTORS.NS` no longer works. Large one-day moves (15% or more) are listed in `data_quality`. Every figure whose window spans one is removed from the snapshot (`data_quality.excluded_fields`), so the model never sees it, and the report prints the warning itself.
 - **News feeds:** RBI (both feeds), SEBI, ET Markets and Mint Markets were verified on 2026-10-07. Moneycontrol is disabled: it returns HTTP 403 to this tool (a publisher block), and we don't imitate a browser to get around it. PIB is disabled (Hindi titles, no dates). Only headlines, short summaries and links are stored, never full articles.
 - **News depth:** a digest built from headlines can't tell you *why* something happened, and the prompt makes Claude say so.
 - Nothing in this repo is investment advice.

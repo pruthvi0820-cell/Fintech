@@ -20,7 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-app = ["streamlit>=1.65"]   # chat page: streamlit run scripts/app.py
+app = ["streamlit>=1.65", "plotly>=5.20"]   # page: streamlit run scripts/app.py
 
 [tool.setuptools.packages.find]
 where = ["src"]

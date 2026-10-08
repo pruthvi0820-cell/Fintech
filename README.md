@@ -61,18 +61,25 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 140 tests, no network needed
+pytest                      # 163 tests, no network needed
 ```
 
-## Chat page
+## The page
 
-A local web page where you ask questions in plain English:
+A local web page with two tabs. Start it with:
 
 ```bash
 pip install -e ".[app]"
 streamlit run scripts/app.py        # opens http://localhost:8501
 ```
 
+**📈 Chart & signals** (swing trading, daily candles):
+- Candlestick chart with 20/50/200-day averages, volume and RSI.
+- Five buy and five sell conditions, each shown as met/not met with the actual values.
+- A backtest of those exact rules on the stock's last ~2 years: trades, win rate, total return compared with just holding, worst drop. Settings (thresholds, max holding days, costs) are adjustable.
+- Signals are rules computed in Python, not AI opinions and not predictions. The AI never issues a buy/sell verdict or price target. The decision is always yours.
+
+**💬 Ask AI:**
 - **Stocks:** "How is TCS.NS doing?" runs the checked trend analysis (turn on "Include news" for headlines too).
 - **Portfolio:** upload a holdings CSV exported from your broker app (Zerodha, Groww...). Weights, concentration and P&L are computed in Python; ask "Is my portfolio diversified?" for an explanation that is numerically checked.
 - **Concepts:** "What is RSI?" gets a tutor-style answer, labelled as not checked against data.

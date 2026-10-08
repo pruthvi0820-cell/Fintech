@@ -71,7 +71,7 @@ def test_tutor_question_round_trip_is_escaped_and_labelled(app):
     shown = " ".join(m.value for m in app.markdown)
     assert "RSI measures momentum" in shown and "<script>" not in shown
     assert "not** checked against market data" in shown
-    assert any("tutor-v1" in c.value for c in app.caption)
+    assert any("tutor-v2" in c.value for c in app.caption)
 
 
 def test_portfolio_question_without_upload_asks_for_csv(app):

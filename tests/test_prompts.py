@@ -19,8 +19,10 @@ def _paths(obj, prefix=""):
     return out
 
 
-def test_trend_prompt_is_v3():
-    assert TREND_PROMPT_VERSION == "trend-v3"
+def test_prompt_versions():
+    from fin_agent.llm.prompts import PORTFOLIO_PROMPT_VERSION, TUTOR_PROMPT_VERSION
+    assert (TREND_PROMPT_VERSION, PORTFOLIO_PROMPT_VERSION, TUTOR_PROMPT_VERSION) == \
+        ("trend-v4", "portfolio-v2", "tutor-v2")
 
 
 def test_every_field_the_prompt_names_exists_in_the_snapshot():
@@ -35,5 +37,10 @@ def test_every_field_the_prompt_names_exists_in_the_snapshot():
 def test_prompt_rules_from_the_audit_are_present():
     for phrase in ("rsi_zone", "ma_order", "macd_above_signal", "no textbook thresholds",
                    "not whether buyers or sellers led", "describe the past", "excluded_fields",
-                   UNRELIABLE_TREND, "one decimal place"):
+                   UNRELIABLE_TREND, "one decimal place", "nearest level", "not with words like",
+                   "under 200 words"):
         assert phrase in TREND_SYSTEM, phrase
+
+
+def test_v3_52_week_high_example_is_gone():
+    assert "52-week\nhigh or low" not in TREND_SYSTEM and "the 52-week high or low)" not in TREND_SYSTEM

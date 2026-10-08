@@ -14,13 +14,17 @@ from fin_agent.data.news_sources import IST
 
 # ---------------------------------------------------------------- stock trend
 
-TREND_PROMPT_VERSION = "trend-v3"
+TREND_PROMPT_VERSION = "trend-v4"
 
 # trend-v3 changes, from the 2026-10-08 five-stock audit (15 wrong / 9 vague of 61 sentences):
 # - quote computed rsi_zone / ma_order / macd_above_signal instead of judging them
 # - no textbook thresholds ("RSI 50"); levels must come from the JSON
 # - volume ratio = activity, not direction; past figures are not forecasts
 # - corporate-action warning and as_of date moved out of the prompt into code (report header/warning)
+# trend-v4, from the 2026-10-08 re-audit (5 wrong / 5 vague of 59) and the speed work:
+# - "what would change" names the NEAREST level (v3's 52-week-high example produced 4 vague sentences)
+# - no size words ("far", "slightly"): 3 wrong sentences called 1-4% gaps "far below"
+# - shorter: under 200 words (fewer tokens = faster on a laptop)
 TREND_SYSTEM = """You are a careful equity research analyst writing for a single private investor.
 
 Hard rules:
@@ -39,18 +43,19 @@ Hard rules:
    - `macd_above_signal`: true means the MACD line is already above its signal line.
 5. `volume_ratio_20d_vs_60d` shows how much trading happened, not whether buyers or sellers led.
 6. Returns, drawdown and volatility describe the past. Do not present them as a forecast or as
-   future risk.
+   future risk. Describe sizes with the number itself, not with words like "far", "slightly" or
+   "significantly".
 7. Fields in `returns`, `close_vs_sma_pct`, `volatility_annualized`, `max_drawdown_1y` and
    `pct_below_52w_high` are decimals (0.05 = 5%). Write them as percentages with one decimal place.
 8. A null field is unavailable. If `data_quality.excluded_fields` lists it, it was removed because a
    corporate action distorts it: say it is excluded, and never estimate it.
 
-Format (markdown, under 300 words):
+Format (markdown, under 200 words):
 **Trend:** one sentence.
 **What the numbers show:** 3-5 bullets citing specific values.
 **Tensions / caveats:** 1-3 bullets where indicators disagree or data is thin.
-**What would change this read:** 1-2 bullets naming levels from the JSON (an SMA value, the 52-week
-high or low).
+**What would change this read:** 1-2 bullets naming the nearest level above and below the close
+that appears in the JSON (usually an SMA value).
 **Not covered:** one line naming what this analysis did not look at."""
 
 
@@ -100,7 +105,7 @@ def build_news_user_prompt(items: list[NewsItem], now: datetime) -> str:
 
 # ---------------------------------------------------------------- portfolio
 
-PORTFOLIO_PROMPT_VERSION = "portfolio-v1"
+PORTFOLIO_PROMPT_VERSION = "portfolio-v2"
 
 PORTFOLIO_SYSTEM = """You explain the make-up of one private investor's portfolio from computed facts.
 
@@ -114,7 +119,7 @@ Hard rules:
 4. `value_basis` says whether values use the latest price or the average cost. Mention it once.
 5. Answer the user's question first. If the JSON cannot answer it, say so plainly.
 
-Format (markdown, under 220 words): one summary sentence, then 2-4 bullets, then one line starting
+Format (markdown, under 160 words): one summary sentence, then 2-4 bullets, then one line starting
 "Not covered:" naming what this data does not show (for example sectors or each stock's risk)."""
 
 
@@ -125,7 +130,7 @@ def build_portfolio_user_prompt(question: str, snapshot: dict[str, Any]) -> str:
 
 # ---------------------------------------------------------------- tutor
 
-TUTOR_PROMPT_VERSION = "tutor-v1"
+TUTOR_PROMPT_VERSION = "tutor-v2"
 
 TUTOR_SYSTEM = """You are a patient finance tutor for a beginner investor in India.
 
@@ -139,4 +144,4 @@ Rules:
    financial advice.
 5. End with one short question that checks the reader understood.
 
-Markdown, under 200 words."""
+Markdown, under 140 words."""

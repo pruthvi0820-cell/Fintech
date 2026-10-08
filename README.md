@@ -37,6 +37,7 @@ The safety layering works like this:
 3. Python then checks the model's text:
    - **Numbers:** each figure must trace back to the data.
    - **Direction:** a percentage next to a direction word ("rose 12.3%", "1.1% above its 20-day", "26.3% drawdown") must have the same sign as the source value. Values with no reliable sign (headline text, figures present with both signs) are not direction-checked.
+   - **Support / resistance:** a level called support must be below the close, and resistance above it.
    - **Citations:** each news bullet must cite a real item.
 
 The check results are printed under every report. "Unverified" means a human should look; it does not necessarily mean wrong. A direction mismatch is always wrong.
@@ -63,7 +64,7 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 202 tests, no network needed
+pytest                      # 243 tests, no network needed
 ```
 
 ## The page

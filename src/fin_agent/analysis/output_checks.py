@@ -8,6 +8,8 @@ a value, round it oddly, or "helpfully" compute a new one. These checks catch th
   Because magnitude matching ignores sign, a separate direction check catches "rose 12.3%"
   written for a -12.3% return: a percentage next to a direction word must match the sign
   of the source value it traces to.
+- check_levels: a level called "support" (a floor) must be below the close, and "resistance"
+  (a ceiling) above it. The trend-v5 audit found "support at sma20" for an sma20 above the close.
 - check_citations: every bullet in a news digest must cite items that exist.
 
 An "unverified" number is not necessarily wrong. It means a human should look.
@@ -53,10 +55,11 @@ class NumberCheck:
     total: int
     unverified: list[str] = field(default_factory=list)
     direction_mismatches: list[str] = field(default_factory=list)   # e.g. "rose 12.3% (source is negative)"
+    level_mismatches: list[str] = field(default_factory=list)       # e.g. "support at sma20 (above the close)"
 
     @property
     def ok(self) -> bool:
-        return not self.unverified and not self.direction_mismatches
+        return not self.unverified and not self.direction_mismatches and not self.level_mismatches
 
     def summary(self) -> str:
         if self.ok:
@@ -70,6 +73,9 @@ class NumberCheck:
         if self.direction_mismatches:
             parts.append(f"Direction check: {len(self.direction_mismatches)} figure(s) state the opposite "
                          f"direction to the source data: {'; '.join(self.direction_mismatches)}.")
+        if self.level_mismatches:
+            parts.append(f"Level check: {len(self.level_mismatches)} level(s) called support or resistance "
+                         f"on the wrong side of the close: {'; '.join(self.level_mismatches)}.")
         return " ".join(parts) + " Review before trusting."
 
 
@@ -222,6 +228,61 @@ def check_numbers(text: str, source: Any) -> NumberCheck:
             if note not in mismatches:
                 mismatches.append(note)
     return NumberCheck(total=total, unverified=unverified, direction_mismatches=mismatches)
+
+
+# ---------------------------------------------------------------- support / resistance
+
+_SUPPORT_WORDS = re.compile(r"\b(?:support|floor)s?\b", re.IGNORECASE)
+_RESISTANCE_WORDS = re.compile(r"\b(?:resistance|ceiling)s?\b", re.IGNORECASE)
+# A clause ends at . ; ! ? or a comma, but not inside a number ("1,216.685") and not at a newline-free
+# decimal point.
+_LEVEL_CLAUSE = re.compile(r"(?<!\d)[.;!?](?!\d)|[.;!?](?=\s)|,(?!\d)|\n")
+_LEVEL_NAMES: list[tuple[re.Pattern, str]] = [
+    (re.compile(rf"\bsma[\s_-]?{n}\b|\b{n}[\s-]?(?:day|DMA)\b", re.IGNORECASE), f"sma{n}")
+    for n in (20, 50, 200)
+] + [
+    (re.compile(r"\bhigh_52w\b|\b52[\s-]?week\s+high\b", re.IGNORECASE), "high_52w"),
+    (re.compile(r"\blow_52w\b|\b52[\s-]?week\s+low\b", re.IGNORECASE), "low_52w"),
+]
+
+
+def _levels(snapshot: dict[str, Any]) -> dict[str, float]:
+    sma = snapshot.get("sma") or {}
+    out = {f"sma{k}": v for k, v in sma.items()}
+    out.update(high_52w=snapshot.get("high_52w"), low_52w=snapshot.get("low_52w"))
+    return {k: float(v) for k, v in out.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
+
+
+def check_levels(text: str, snapshot: dict[str, Any]) -> list[str]:
+    """Levels named as support but above the close, or as resistance but below it.
+
+    Works clause by clause. A clause naming both support and resistance is skipped (ambiguous).
+    A level is recognised by name ("sma20", "20-day", "52-week low") or by its exact value.
+    """
+    close = snapshot.get("last_close")
+    levels = _levels(snapshot)
+    if not isinstance(close, (int, float)) or not levels:
+        return []
+    out: list[str] = []
+    for clause in _LEVEL_CLAUSE.split(text):
+        sup, res = bool(_SUPPORT_WORDS.search(clause)), bool(_RESISTANCE_WORDS.search(clause))
+        if sup == res:
+            continue
+        named = {name for rx, name in _LEVEL_NAMES if rx.search(clause) and name in levels}
+        for m in _NUM.finditer(_strip(clause)):
+            n = m.group(0)
+            named |= {name for name, v in levels.items() if abs(abs(_to_float(n)) - v) <= _tolerance(n)}
+        for name in sorted(named):
+            v = levels[name]
+            if sup and v > close:
+                note = f"support at {name} ({v} is above the close {close})"
+            elif res and v < close:
+                note = f"resistance at {name} ({v} is below the close {close})"
+            else:
+                continue
+            if note not in out:
+                out.append(note)
+    return out
 
 
 @dataclass

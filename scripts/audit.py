@@ -72,7 +72,7 @@ def main() -> int:
             parts += [f"> {TRUNCATION_WARNING}", ""]
         if r.check:
             parts += [f"> {r.check.summary()}", ""]
-            mismatches += len(r.check.direction_mismatches)
+            mismatches += len(r.check.direction_mismatches) + len(r.check.level_mismatches)
         if warning := data_warning(r.snapshot):
             parts += [f"> {warning}", ""]
         for s in sentences(r.analysis or ""):
@@ -89,7 +89,7 @@ def main() -> int:
                   f"Total {secs:.0f} s for {len(timings)} stocks (average {secs / len(timings):.0f} s each), "
                   f"{toks} tokens written" + (f" ({toks / secs:.1f} tokens/s)" if secs and toks else ""), ""]
     parts += ["## Tally", "", f"Sentences reviewed: {total}",
-              f"Direction mismatches auto-flagged: {mismatches} (each one is a wrong sentence)",
+              f"Direction and level mismatches auto-flagged: {mismatches} (each one is a wrong sentence)",
               "Wrong: __   Vague: __",
               "Most common problem pattern: ______________________"]
     REPORTS_DIR.mkdir(exist_ok=True)

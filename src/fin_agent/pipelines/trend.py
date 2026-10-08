@@ -1,4 +1,4 @@
-"""Stock trend pipeline: fetch → snapshot → Claude explanation → numeric check."""
+"""Stock trend pipeline: fetch → snapshot → Claude explanation → numeric and level checks."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from fin_agent.analysis.indicators import compute_snapshot, data_warning
-from fin_agent.analysis.output_checks import NumberCheck, check_numbers
+from fin_agent.analysis.output_checks import NumberCheck, check_levels, check_numbers
 from fin_agent.data.market_data import PriceHistory, fetch_history
 from fin_agent.llm.base import TRUNCATION_WARNING
 from fin_agent.llm.prompts import TREND_PROMPT_VERSION, TREND_SYSTEM, build_trend_user_prompt
@@ -60,5 +60,6 @@ def build_trend_report(ticker: str, period: str = "2y", client=None, on_text=Non
         report.truncated = res.truncated
         report.model, report.output_tokens = res.model, res.output_tokens
         report.check = check_numbers(res.text, report.snapshot)
+        report.check.level_mismatches = check_levels(res.text, report.snapshot)
         report.footer = f"{res.model} | {TREND_PROMPT_VERSION} | {res.input_tokens} in / {res.output_tokens} out tokens"
     return report

@@ -118,3 +118,73 @@ def test_window_length_lists_are_not_checked(text):
 ])
 def test_window_list_skip_stays_narrow(text, flagged):
     assert check_numbers(text, {"rsi14": 41.2}).unverified == flagged
+
+
+# ---- support / resistance side check (trend-v5 audit: "support at sma20" with sma20 above the close)
+
+from fin_agent.analysis.output_checks import NumberCheck, check_levels  # noqa: E402
+
+TCS = {"last_close": 2076.0, "sma": {"20": 2115.155, "50": 2247.982, "200": 2436.8905},
+       "high_52w": 3204.282, "low_52w": 1971.7888}
+
+
+def test_audit_case_support_above_close_is_flagged():
+    text = ("The last close of 2076.0 is below all moving averages (sma20, sma50, sma200), "
+            "with the closest support at sma20 (2115.155).")
+    assert check_levels(text, TCS) == ["support at sma20 (2115.155 is above the close 2076.0)"]
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("Resistance sits at the 52-week low of 1971.79.", ["resistance at low_52w (1971.7888 is below the close 2076.0)"]),
+    ("The 50-day average acts as a floor.", ["support at sma50 (2247.982 is above the close 2076.0)"]),
+    ("SMA 200 is support.", ["support at sma200 (2436.8905 is above the close 2076.0)"]),
+])
+def test_wrong_side_by_name_or_value(text, expected):
+    assert check_levels(text, TCS) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "The 20-day average at 2,115.2 acts as resistance; support is the 52-week low of 1971.79.",
+    "Support sits at 1971.7888, resistance at sma20.",
+    "sma20 (2115.155) is resistance and the 52-week low (1971.79) is support.",   # both words: skipped
+    "The close is below sma20. Support is unclear.",                              # different clauses
+    "RSI 38.4 offers no support signal.",                                        # no level named
+])
+def test_correct_or_ambiguous_uses_pass(text):
+    assert check_levels(text, TCS) == []
+
+
+def test_missing_levels_and_close_are_safe():
+    assert check_levels("Support at sma20.", {"last_close": None, "sma": {"20": 1.0}}) == []
+    assert check_levels("Support at the 52-week low.", {"last_close": 10.0, "sma": {}, "low_52w": None}) == []
+
+
+def test_level_mismatch_makes_the_check_fail_and_is_summarised():
+    chk = NumberCheck(total=3, level_mismatches=["support at sma20 (2115.155 is above the close 2076.0)"])
+    assert not chk.ok
+    assert "Level check: 1 level(s)" in chk.summary() and "Review before trusting." in chk.summary()
+
+
+def test_trend_pipeline_runs_the_level_check(monkeypatch):
+    from datetime import datetime, timezone
+
+    import numpy as np
+    import pandas as pd
+
+    from fin_agent.data.market_data import PriceHistory
+    from fin_agent.llm.base import LLMResult
+    from fin_agent.pipelines import trend
+
+    idx = pd.bdate_range("2024-10-01", periods=300, tz="UTC")
+    close = np.linspace(200, 100, 300)     # downtrend: every SMA is above the close
+    bars = pd.DataFrame({"Open": close, "High": close, "Low": close, "Close": close, "Volume": 1e6}, index=idx)
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(trend, "fetch_history", lambda t, period="2y": PriceHistory(t, bars, "INR", "test", now, now))
+
+    class Client:
+        def complete(self, system, user, temperature=0.2):
+            return LLMResult("The 20-day average is the nearest support.", "m", 1, 1, False)
+
+    report = trend.build_trend_report("X.NS", client=Client())
+    assert report.check.level_mismatches and report.check.level_mismatches[0].startswith("support at sma20")
+    assert "Level check" in report.to_markdown()

@@ -14,7 +14,7 @@ from fin_agent.data.news_sources import IST
 
 # ---------------------------------------------------------------- stock trend
 
-TREND_PROMPT_VERSION = "trend-v5"
+TREND_PROMPT_VERSION = "trend-v6"
 
 # trend-v3 changes, from the 2026-10-08 five-stock audit (15 wrong / 9 vague of 61 sentences):
 # - quote computed rsi_zone / ma_order / macd_above_signal instead of judging them
@@ -29,6 +29,11 @@ TREND_PROMPT_VERSION = "trend-v5"
 # - v4's "nearest level above and below" made the model write "if the close falls below the 200-day"
 #   when it was already below (5 wrong). Python now computes nearest_level_above / _below.
 # - no change words without history ("narrowing", "elevated", "unusual"): 3 wrong sentences
+# trend-v6, from the qwen3:8b trend-v5 audit (2 wrong / 8 vague of 58):
+# - "a close above sma20 could signal a reversal" x4: Python now computes trend_label_change (only a
+#   close past sma50 changes the label); "reversal" is reserved for that.
+# - "potential bullish crossover" when macd_above_signal was already true
+# - "support at sma20" above the close: now caught by check_levels, not only by the prompt
 TREND_SYSTEM = """You are a careful equity research analyst writing for a single private investor.
 
 Hard rules:
@@ -44,7 +49,10 @@ Hard rules:
    - `ma_order` lists the close and the moving averages from lowest to highest. In a downtrend it is
      normal for shorter averages to sit below longer ones. An average above the close acts as
      resistance (a ceiling); an average below the close acts as support (a floor).
-   - `macd_above_signal`: true means the MACD line is already above its signal line.
+   - `macd_above_signal`: true means the MACD line is already above its signal line: the crossover
+     has happened, it is not "potential". False means it is below.
+   - `trend_label_change` says where the label would change. A close past any other level does not
+     change `trend_label`, so never call it a reversal.
 5. `volume_ratio_20d_vs_60d` shows how much trading happened, not whether buyers or sellers led.
 6. Returns, drawdown and volatility describe the past. Do not present them as a forecast or as
    future risk. Describe sizes with the number itself, not with words like "far", "slightly" or
@@ -61,9 +69,13 @@ Format (markdown, under 200 words):
 **Trend:** one sentence.
 **What the numbers show:** 3-5 bullets citing specific values.
 **Tensions / caveats:** 1-3 bullets where indicators disagree or data is thin.
-**What would change this read:** exactly 2 bullets. Use `nearest_level_above` (a close above it)
-and `nearest_level_below` (a close below it): give each one's name and value as written. If one is
-null, say there is no level on that side in this data. Name no other levels here.
+**What would change this read:** exactly 3 bullets, using only these fields, names and values as written:
+- `nearest_level_above`: the first level a rising close would cross. If null, write "No level above
+  the close in this data."
+- `nearest_level_below`: the first level a falling close would cross. If null, write "No level below
+  the close in this data."
+- `trend_label_change`: "The trend label becomes <new_label> only if the close goes <close_must_go>
+  <level> (<value>)." If null, write "The trend label cannot be changed by one close in this data."
 **Not covered:** one line naming what this analysis did not look at."""
 
 

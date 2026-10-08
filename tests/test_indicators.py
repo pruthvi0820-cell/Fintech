@@ -183,3 +183,41 @@ def test_nearest_levels_in_snapshot_use_guarded_values():
 def test_nearest_level_names_do_not_whitelist_invented_numbers():
     snap = {"nearest_level_above": {"name": "sma200", "value": 2448.08}, "nearest_level_below": None}
     assert check_numbers("A close above 200 would matter.", snap).unverified == ["200"]
+
+
+# ---- trend_label_change (trend-v6): only a close past sma50 changes the label
+
+from fin_agent.analysis.indicators import classify_trend, trend_label_change  # noqa: E402
+
+
+@pytest.mark.parametrize(("close", "sma50", "sma200", "side", "new"), [
+    (1178.0, 1271.032, 1347.19, "above", "mixed"),     # RELIANCE 2026-10-08 downtrend
+    (1300.0, 1271.0, 1200.0, "below", "mixed"),        # uptrend
+    (1250.0, 1271.0, 1200.0, "above", "uptrend"),      # mixed, averages rising
+    (1300.0, 1271.0, 1347.0, "below", "downtrend"),    # mixed, averages falling
+])
+def test_trend_label_change(close, sma50, sma200, side, new):
+    label = classify_trend(close, sma50, sma200)
+    assert trend_label_change(close, sma50, sma200, label) == \
+        {"close_must_go": side, "level": "sma50", "value": sma50, "new_label": new}
+    # crossing the level really does give the new label under the same rule
+    past = sma50 + 0.01 if side == "above" else sma50 - 0.01
+    assert classify_trend(past, sma50, sma200) == new
+
+
+@pytest.mark.parametrize("args", [
+    (100.0, None, 90.0, "insufficient_history"),
+    (100.0, 95.0, 90.0, UNRELIABLE_TREND),
+    (100.0, 100.0, 90.0, "mixed"),          # close exactly on sma50
+    (100.0, 95.0, 95.0, "mixed"),           # equal averages: no single close changes the label
+])
+def test_trend_label_change_none(args):
+    assert trend_label_change(*args) is None
+
+
+def test_trend_label_change_in_snapshot_and_after_guard():
+    snap = compute_snapshot(make_bars(np.linspace(200, 100, 300)))
+    assert snap["trend_label"] == "downtrend"
+    assert snap["trend_label_change"] == {"close_must_go": "above", "level": "sma50",
+                                          "value": snap["sma"]["50"], "new_label": "mixed"}
+    assert compute_snapshot(gap_bars(30))["trend_label_change"] is None   # sma50 removed by the guard

@@ -155,6 +155,24 @@ def nearest_levels(close: float | None, levels: dict[str, float | None]
     return tuple(None if hit is None else {"name": hit[1], "value": hit[0]} for hit in (above, below))
 
 
+def trend_label_change(close: float | None, sma50: float | None, sma200: float | None,
+                       label: str) -> dict[str, Any] | None:
+    """Where `classify_trend` would give a different label, holding the averages fixed.
+
+    With the rule close-vs-sma50-vs-sma200, only a close crossing sma50 can change the label, so a
+    close past sma20 is never a "reversal" (2026-10-08 trend-v5 audit: 4 sentences said it was).
+    None when the label is not one of the three or the averages are missing or equal.
+    """
+    if label not in ("uptrend", "downtrend", "mixed") or None in (close, sma50, sma200) \
+            or close == sma50 or sma50 == sma200:
+        return None
+    side = "above" if close < sma50 else "below"
+    new = classify_trend(sma50 * (1 + 1e-9) if side == "above" else sma50 * (1 - 1e-9), sma50, sma200)
+    if new == label:
+        return None
+    return {"close_must_go": side, "level": "sma50", "value": sma50, "new_label": new}
+
+
 def _add_derived_facts(snap: dict[str, Any]) -> None:
     """Facts derived from (possibly guarded) values, so a removed input yields None, not a guess."""
     snap["rsi_zone"] = rsi_zone(snap["rsi14"])
@@ -162,6 +180,8 @@ def _add_derived_facts(snap: dict[str, Any]) -> None:
     levels = {f"sma{k}": v for k, v in snap["sma"].items()}
     levels.update(high_52w=snap["high_52w"], low_52w=snap["low_52w"])
     snap["nearest_level_above"], snap["nearest_level_below"] = nearest_levels(snap["last_close"], levels)
+    snap["trend_label_change"] = trend_label_change(snap["last_close"], snap["sma"]["50"], snap["sma"]["200"],
+                                                    snap["trend_label"])
     m = snap["macd"]
     snap["macd_above_signal"] = None if m["macd"] is None or m["signal"] is None else m["macd"] > m["signal"]
 

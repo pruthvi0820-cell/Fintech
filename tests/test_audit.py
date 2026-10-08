@@ -32,8 +32,8 @@ def test_audit_sheet_shows_direction_mismatches(monkeypatch, tmp_path):
     assert audit.main() == 0
     sheet = next(tmp_path.glob("audit_*.md")).read_text(encoding="utf-8")
     assert "Direction check: 1 figure(s)" in sheet and "'rose 12.3%' (source is negative)" in sheet
-    assert "Direction mismatches auto-flagged: 1" in sheet
-    assert "## Speed" in sheet and "120 tokens written" in sheet and "prompt trend-v5" in sheet
+    assert "Direction and level mismatches auto-flagged: 1" in sheet
+    assert "## Speed" in sheet and "120 tokens written" in sheet and "prompt trend-v6" in sheet
 
 
 def test_audit_sheet_warns_when_reply_was_cut_off(monkeypatch, tmp_path):

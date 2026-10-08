@@ -41,8 +41,9 @@ def button(at, label):
 
 
 @pytest.fixture
-def app(monkeypatch):
+def app(monkeypatch, tmp_path):
     st.cache_data.clear()
+    monkeypatch.setenv("FIN_AGENT_JOURNAL_PATH", str(tmp_path / "journal.sqlite3"))
     monkeypatch.setattr(market_data, "fetch_history", fake_history)
     monkeypatch.setattr(factory, "client_from_env", lambda max_tokens=1200: FakeClient())
     monkeypatch.setenv("FIN_AGENT_PROVIDER", "ollama")
@@ -55,7 +56,7 @@ def test_page_loads_with_examples_and_no_errors(app):
     assert app.title[0].value == "FinTray"
     assert [b.label for b in app.button] == ["Analyze", "How is RELIANCE.NS doing?", "What is RSI?",
                                               "Is my portfolio diversified?"]
-    assert [t.label for t in app.tabs] == ["📈 Chart & signals", "💬 Ask AI"]
+    assert [t.label for t in app.tabs] == ["📈 Chart & signals", "📒 Journal", "💬 Ask AI"]
     assert any("cannot place orders" in c.value for c in app.caption)
 
 
@@ -102,8 +103,8 @@ def test_trade_plan_shows_size_stop_and_target_and_reacts_to_capital(app):
     assert not app.exception
     metrics = {m.label: m.value for m in app.metric}
     assert {"Buy shares", "Stop-loss", "Target"} <= set(metrics)
-    assert any(k.startswith("Max loss at stop (") for k in metrics)
-    assert any(k.startswith("Position size (") for k in metrics)
+    assert any(k.startswith("Max loss (") for k in metrics)
+    assert any(k.startswith("Position (") for k in metrics)
     shares_at_1l = int(metrics["Buy shares"].replace(",", ""))
     app.number_input(key="capital").set_value(200000.0).run()
     metrics = {m.label: m.value for m in app.metric}
@@ -122,3 +123,34 @@ def test_missing_chart_library_shows_install_hint_not_a_crash(app, monkeypatch):
     assert not app.exception
     assert any('pip install -e ".[app]"' in e.value for e in app.error)
     assert any(m.label == "Buy shares" for m in app.metric)   # the rest of the tab still works
+
+
+def test_log_decisions_then_close_a_trade_in_the_journal(app, tmp_path):
+    app.run()
+    button(app, "Analyze").click().run()
+    # 1) a skip without a reason is refused, with a message
+    button(app, "Save to journal").click().run()
+    assert any("short reason" in w.value for w in app.warning)
+    # 2) log a skip, then a buy
+    app.text_area[0].set_value("Signals mixed, waiting")
+    button(app, "Save to journal").click().run()
+    assert any("journal entry #1" in m.value for m in app.success)
+    app.radio[0].set_value("I bought")
+    app.text_area[0].set_value("4 of 5 buy conditions, backtest beat holding")
+    button(app, "Save to journal").click().run()
+    assert any("journal entry #2" in m.value for m in app.success)
+    assert not app.exception
+    # 3) the Journal tab lists both, then closes the buy
+    from fin_agent.portfolio.journal import Journal
+    j = Journal(tmp_path / "journal.sqlite3")
+    assert list(j.entries()["decision"]) == ["bought", "skipped"]
+    entry = j.entries().iloc[0]
+    close_inputs = [n for n in app.number_input if n.label == "Sold at ₹"]
+    close_inputs[0].set_value(float(entry["target"]))
+    button(app, "Close trade").click().run()
+    assert not app.exception
+    assert any(m.value.startswith("Closed: P&L") for m in app.success)
+    assert j.stats()["closed"] == 1 and j.stats()["win_rate"] == 1.0
+    # the tab redrew itself: totals updated and no open trade left to close
+    assert {m.label: m.value for m in app.metric}["Closed trades"] == "1"
+    assert not [b for b in app.button if b.label == "Close trade"]

@@ -63,7 +63,7 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 183 tests, no network needed
+pytest                      # 202 tests, no network needed
 ```
 
 ## The page
@@ -83,6 +83,11 @@ streamlit run scripts/app.py        # opens http://localhost:8501
 - A backtest of those exact rules on the stock's last ~2 years: trades, win rate, total return compared with just holding, worst drop. Settings (thresholds, max holding days, costs) are adjustable.
 - **Trade plan (risk calculator):** enter your capital and the % you accept losing per trade. It gives the number of shares, a stop-loss 2 × ATR below entry, a target at 2 × the risk, the rupee loss if the stop is hit, and the position size. Positions are capped at 25% of capital. The levels are drawn on the chart. Long only (delivery).
 - Signals are rules computed in Python, not AI opinions and not predictions. The AI never issues a buy/sell verdict or price target. The decision is always yours.
+
+**📒 Journal:**
+- Under the trade plan, "Log your decision" saves *I bought* (with your actual price and shares) or *I skipped*, with a required reason and the signals at that moment.
+- The Journal tab closes trades (target / stop-loss / sold early) and shows win rate, average win and loss, profit factor, average R (result divided by planned risk), total P&L, and whether trades taken **with** the signal did better than trades taken **against** it.
+- Stored only on this computer in `journal/journal.sqlite3` (git-ignored); downloadable as CSV.
 
 **💬 Ask AI:**
 - **Stocks:** "How is TCS.NS doing?" runs the checked trend analysis (turn on "Include news" for headlines too).

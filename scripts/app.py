@@ -22,7 +22,10 @@ from fin_agent.config import Settings
 from fin_agent.data import market_data
 from fin_agent.llm import factory
 from fin_agent.pipelines.ask import answer
+import sqlite3
+
 from fin_agent.portfolio.holdings import PortfolioError, parse_holdings_csv, portfolio_snapshot
+from fin_agent.portfolio.journal import EXIT_REASONS, Journal, JournalError, default_path
 
 EXAMPLES = ["How is RELIANCE.NS doing?", "What is RSI?", "Is my portfolio diversified?"]
 DISCLAIMER = "Research aid only. Not investment advice. This page cannot place orders."
@@ -75,8 +78,10 @@ def trade_plan_section(bars: pd.DataFrame, cost_per_side: float):
     m[1].metric("Entry ≈ last close", f"₹{p.entry:,.2f}")
     m[2].metric("Stop-loss", f"₹{p.stop:,.2f}", f"-{p.stop_distance_pct * 100:.1f}%", delta_color="off")
     m[3].metric("Target", f"₹{p.target:,.2f}", f"+{p.target_distance_pct * 100:.1f}%", delta_color="off")
-    m[4].metric(f"Max loss at stop ({p.max_loss_pct * 100:.2f}% of capital)", f"₹{p.max_loss:,.0f}")
-    m[5].metric(f"Position size ({p.position_pct * 100:.1f}% of capital)", f"₹{p.position_value:,.0f}")
+    m[4].metric(f"Max loss ({p.max_loss_pct * 100:.2f}%)", f"₹{p.max_loss:,.0f}",
+                help="Loss if the stop-loss is hit, including estimated costs, as % of your capital.")
+    m[5].metric(f"Position ({p.position_pct * 100:.1f}%)", f"₹{p.position_value:,.0f}",
+                help="Money invested in this trade, as % of your capital.")
     st.caption(f"ATR {p.atr:,.2f}. Shares limited by your {p.limited_by}. Profit if target hit "
                f"≈ ₹{p.reward_if_target:,.0f} after estimated costs. Prices are delayed; check the live price "
                "before ordering.")
@@ -85,12 +90,123 @@ def trade_plan_section(bars: pd.DataFrame, cost_per_side: float):
     return p
 
 
+def get_journal() -> Journal | None:
+    try:
+        return Journal(default_path())
+    except (OSError, sqlite3.Error) as exc:
+        st.error(f"Can't open the journal file {default_path()}: {exc}")
+        return None
+
+
+def log_decision_section(ticker: str, sig: dict, plan, last_close: float, cost_per_side: float) -> None:
+    """Form under the trade plan: record 'I bought' or 'I skipped' with a reason."""
+    with st.form("log_decision", clear_on_submit=True):
+        st.markdown("**Log your decision** · saved only on this computer, in the Journal tab")
+        decision = st.radio("Decision", ["I skipped", "I bought"], horizontal=True)
+        c1, c2 = st.columns(2)
+        fill_price = c1.number_input("If bought: your actual buy price ₹", min_value=0.0,
+                                     value=float(plan.entry if plan else last_close), step=0.05)
+        fill_shares = c2.number_input("If bought: shares you actually bought", min_value=0,
+                                      value=int(plan.shares if plan else 0), step=1)
+        reason = st.text_area("Why? (required)", max_chars=1000,
+                              placeholder="e.g. 4 of 5 buy conditions, backtest beat holding, stop fits my risk")
+        submitted = st.form_submit_button("Save to journal")
+    if not submitted:
+        return
+    journal = get_journal()
+    if journal is None:
+        return
+    bought = decision == "I bought"
+    try:
+        entry_id = journal.log_decision(
+            ticker, "bought" if bought else "skipped", last_close, reason, sig, plan,
+            fill_price=fill_price if bought else None, fill_shares=fill_shares if bought else None,
+            cost_per_side=cost_per_side)
+    except JournalError as exc:
+        st.warning(str(exc))
+    except sqlite3.Error as exc:
+        st.error(f"Could not save to the journal: {exc}")
+    else:
+        st.success(f"Saved as journal entry #{entry_id}.")
+
+
+def journal_tab() -> None:
+    journal = get_journal()
+    if journal is None:
+        return
+    st.caption(f"Your decisions and results. Stored only on this computer: {journal.path}")
+    if msg := st.session_state.pop("journal_msg", None):
+        st.success(msg)
+    s = journal.stats()
+    money = lambda x: "–" if x is None else f"₹{x:,.0f}"            # noqa: E731
+    pct = lambda x: "–" if x is None else f"{x * 100:.0f}%"           # noqa: E731
+    r_fmt = lambda x: "–" if x is None else f"{x:+.2f}R"               # noqa: E731
+    k = st.columns(6)
+    k[0].metric("Closed trades", s["closed"])
+    k[1].metric("Win rate", pct(s["win_rate"]))
+    k[2].metric("Avg win / avg loss", f"{money(s['avg_win'])} / {money(s['avg_loss'])}")
+    k[3].metric("Profit factor", "–" if s["profit_factor"] is None else f"{s['profit_factor']:.2f}",
+                help="Total won divided by total lost. Above 1 means the wins outweigh the losses.")
+    k[4].metric("Average R", "–" if s["avg_r"] is None else f"{s['avg_r']:+.2f}R",
+                help="Result divided by the risk you planned. +2R = won twice what you risked.")
+    k[5].metric("Total P&L", money(s["total_pnl"]))
+    st.caption(f"{s['bought']} bought ({s['open']} still open), {s['skipped']} skipped.")
+    if s["closed"] < 10:
+        st.info("Fewer than 10 closed trades: too early to judge. Keep logging every decision, including skips.")
+    if s["closed"]:
+        st.markdown("**Did following the signals help?** (closed trades, signal = 4 or more buy conditions)")
+        st.dataframe(pd.DataFrame([
+            {"Trades": "With the signal", "Count": s["with_signal"]["trades"],
+             "Win rate": pct(s["with_signal"]["win_rate"]), "Average R": r_fmt(s["with_signal"]["avg_r"])},
+            {"Trades": "Against the signal", "Count": s["against_signal"]["trades"],
+             "Win rate": pct(s["against_signal"]["win_rate"]), "Average R": r_fmt(s["against_signal"]["avg_r"])},
+        ]), hide_index=True, width="stretch")
+
+    df = journal.entries()
+    open_trades = df[df["status"] == "open"]
+    if not open_trades.empty:
+        st.subheader("Close a trade")
+        with st.form("close_trade", clear_on_submit=True):
+            labels = {f"#{r.id} {r.ticker}: {r.shares} @ ₹{r.price:,.2f} (stop ₹{r.stop:,.2f}, target ₹{r.target:,.2f})": r
+                      for r in open_trades.itertuples()}
+            choice = st.selectbox("Open trade", list(labels))
+            c1, c2 = st.columns(2)
+            exit_price = c1.number_input("Sold at ₹", min_value=0.0, step=0.05)
+            exit_reason = c2.selectbox("Why it ended", EXIT_REASONS)
+            if st.form_submit_button("Close trade"):
+                try:
+                    res = journal.close_trade(int(labels[choice].id), exit_price, exit_reason)
+                except JournalError as exc:
+                    st.warning(str(exc))
+                else:
+                    st.session_state["journal_msg"] = (
+                        f"Closed: P&L ₹{res['pnl']:,.0f}"
+                        + ("" if res["r_multiple"] is None else f" ({res['r_multiple']:+.2f}R)") + ".")
+                    st.rerun()        # redraw totals and the open-trades list straight away
+
+    if df.empty:
+        st.info("No entries yet. Analyze a stock in the Chart tab, then use 'Log your decision'.")
+        return
+    st.subheader("All entries")
+    cols = ["id", "created_at", "ticker", "decision", "status", "price", "shares", "stop", "target",
+            "buy_score", "reason", "exit_date", "exit_price", "exit_reason", "pnl", "r_multiple"]
+    st.dataframe(df[cols], hide_index=True, width="stretch")
+    st.download_button("Download journal (CSV)", df.to_csv(index=False).encode("utf-8"),
+                       file_name="fintray_journal.csv", mime="text/csv")
+    with st.expander("Delete a mistaken entry"):
+        target = st.selectbox("Entry", [f"#{r.id} {r.ticker} {r.decision}" for r in df.itertuples()])
+        if st.checkbox("I'm sure: delete permanently") and st.button("Delete entry"):
+            journal.delete(int(target.split()[0][1:]))
+            st.session_state["journal_msg"] = f"Deleted {target}."
+            st.rerun()
+
+
 def chart_tab() -> None:
     c1, c2 = st.columns([3, 1])
     raw = c1.text_input("NSE symbol", value=st.session_state.get("chart_ticker", "RELIANCE.NS"),
                         help="Add .NS for NSE (e.g. ITC.NS) or .BO for BSE. A bare symbol gets .NS.")
     c2.write("")
-    clicked = c2.button("Analyze", type="primary", use_container_width=True)
+    clicked = c2.button("Analyze", type="primary", width="stretch")
     with st.expander("Backtest settings"):
         b1, b2, b3, b4 = st.columns(4)
         entry = b1.slider("Buy when conditions met ≥", 3, 5, 4)
@@ -132,13 +248,14 @@ def chart_tab() -> None:
         st.info(f"Last candle pattern: {pattern}")
 
     plan = trade_plan_section(bars, cost / 100)
+    log_decision_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
     try:
         fig = candle_chart(bars, f"{hist.ticker} — daily candles", result, plan)
     except ImportError:
         st.error('The chart library is not installed. Stop the page (Ctrl+C) and run:  pip install -e ".[app]"  '
                  "then start it again. Everything else on this page works without it.")
     else:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     st.subheader("How these rules did on this stock (backtest)")
     st.caption(f"{result.start} to {result.end}. Buy at the next day's open when at least {entry} buy "
@@ -160,7 +277,7 @@ def chart_tab() -> None:
                 "Bought": t.entry_date, "Buy price": t.entry_price, "Sold": t.exit_date,
                 "Sell price": t.exit_price, "Days": t.bars_held,
                 "Return % (after costs)": round(t.net_return * 100, 2), "Why sold": t.exit_reason,
-            } for t in result.trades]), hide_index=True, use_container_width=True)
+            } for t in result.trades]), hide_index=True, width="stretch")
     st.caption(SIGNALS_CAVEAT)
 
 APP_NAME = "FinTray"
@@ -196,7 +313,7 @@ with st.sidebar:
             st.dataframe(
                 pd.DataFrame({"Symbol": list(snap["weights"]),
                               "Weight %": [round(w * 100, 1) for w in snap["weights"].values()]}),
-                hide_index=True, use_container_width=True,
+                hide_index=True, width="stretch",
             )
             for reason in portfolio.skipped:
                 st.caption(f"Skipped {reason}")
@@ -213,10 +330,13 @@ with st.sidebar:
 
 # ---------------------------------------------------------------- page
 st.title(APP_NAME)
-tab_chart, tab_chat = st.tabs(["📈 Chart & signals", "💬 Ask AI"])
+tab_chart, tab_journal, tab_chat = st.tabs(["📈 Chart & signals", "📒 Journal", "💬 Ask AI"])
 
 with tab_chart:
     chart_tab()
+
+with tab_journal:
+    journal_tab()
 
 with tab_chat:
     st.caption("Ask about a stock (use the NSE symbol, e.g. ITC.NS), your uploaded portfolio, "
@@ -226,7 +346,7 @@ with tab_chat:
     if not st.session_state.messages:
         cols = st.columns(len(EXAMPLES))
         for col, example in zip(cols, EXAMPLES):
-            if col.button(example, use_container_width=True):
+            if col.button(example, width="stretch"):
                 pending = example
 
     for msg in st.session_state.messages:

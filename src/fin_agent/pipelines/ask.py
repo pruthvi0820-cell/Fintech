@@ -80,6 +80,20 @@ class Answer:
     footer: str | None = None    # model | prompt version | tokens
 
 
+CACHEABLE_KINDS = frozenset({"stock", "portfolio", "tutor"})   # never remember errors or notices
+
+
+def cache_key(question: str, include_news: bool, portfolio: Portfolio | None, model: str, day: str) -> tuple:
+    """Same question, same day, same model, same portfolio and news setting -> same answer.
+
+    `day` should be the trading day (IST date) so answers expire overnight, when prices change.
+    """
+    q = " ".join((question or "").lower().split())
+    holdings = tuple(sorted((h.symbol, h.quantity, h.avg_cost, h.last_price) for h in portfolio.holdings)) \
+        if portfolio else ()
+    return (q, bool(include_news), holdings, model, day)
+
+
 def _footer(res: Any, version: str) -> str:
     return f"{res.model} | {version} | {res.input_tokens} in / {res.output_tokens} out tokens"
 

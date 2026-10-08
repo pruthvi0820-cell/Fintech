@@ -162,3 +162,15 @@ def test_on_text_reaches_the_model_call_only_when_given():
     a = answer("What is RSI?", StreamingFake("RSI measures momentum."), on_text=seen.append)
     assert seen == ["RSI measures", "RSI measures momentum."] and a.kind == "tutor"
     assert answer("What is RSI?", FakeClient("ok")).kind == "tutor"     # old-style clients still work
+
+
+def test_cache_key_normalises_question_and_separates_what_matters():
+    from fin_agent.pipelines.ask import CACHEABLE_KINDS, cache_key
+    base = cache_key("How is  TCS.NS doing?", False, None, "qwen3:8b", "2026-10-08")
+    assert base == cache_key("how is tcs.ns doing?", False, None, "qwen3:8b", "2026-10-08")
+    for other in (cache_key("How is TCS.NS doing?", True, None, "qwen3:8b", "2026-10-08"),       # news on
+                  cache_key("How is TCS.NS doing?", False, PORTFOLIO, "qwen3:8b", "2026-10-08"),  # portfolio
+                  cache_key("How is TCS.NS doing?", False, None, "qwen3:4b", "2026-10-08"),       # model
+                  cache_key("How is TCS.NS doing?", False, None, "qwen3:8b", "2026-10-09")):      # next day
+        assert other != base
+    assert "error" not in CACHEABLE_KINDS and "notice" not in CACHEABLE_KINDS

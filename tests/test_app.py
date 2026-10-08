@@ -158,3 +158,22 @@ def test_log_decisions_then_close_a_trade_in_the_journal(app, tmp_path):
     # the tab redrew itself: totals updated and no open trade left to close
     assert {m.label: m.value for m in app.metric}["Closed trades"] == "1"
     assert not [b for b in app.button if b.label == "Close trade"]
+
+
+def test_same_question_today_is_answered_from_memory(app, monkeypatch):
+    calls = []
+
+    class CountingClient(FakeClient):
+        def complete(self, *a, **kw):
+            calls.append(1)
+            return super().complete(*a, **kw)
+
+    monkeypatch.setattr(factory, "client_from_env", lambda max_tokens=1200: CountingClient())
+    app.run()
+    app.chat_input[0].set_value("What is RSI?").run()
+    app.chat_input[0].set_value("what is  RSI?").run()           # same question, different spacing/case
+    assert len(calls) == 1
+    assert any("remembered from earlier today" in c.value for c in app.caption)
+    next(t for t in app.toggle if t.label == "Reuse today's answers").set_value(False).run()
+    app.chat_input[0].set_value("What is RSI?").run()
+    assert len(calls) == 2 and not app.exception

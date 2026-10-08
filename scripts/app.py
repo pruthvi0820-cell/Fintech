@@ -21,7 +21,10 @@ from fin_agent.charts import candle_chart
 from fin_agent.config import Settings
 from fin_agent.data import market_data
 from fin_agent.llm import factory
-from fin_agent.pipelines.ask import answer
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from fin_agent.pipelines.ask import CACHEABLE_KINDS, answer, cache_key
 from fin_agent.pipelines.brief import safe_model_text
 import sqlite3
 
@@ -322,6 +325,9 @@ with st.sidebar:
     st.divider()
     include_news = st.toggle("Include news in stock answers", value=False,
                              help="Adds a second model call: about 1-2 minutes more on a laptop.")
+    use_memory = st.toggle("Reuse today's answers", value=True,
+                           help="Asking the same question again today shows the earlier answer instantly. "
+                                "Turn off to make the AI write a fresh one.")
     try:
         s = Settings.from_env()
         st.caption(f"Model: {s.provider} · {s.model}")
@@ -370,14 +376,27 @@ with tab_chat:
             def show_partial(text: str) -> None:
                 live.markdown(safe_model_text(text) + "\n\n_… writing. Checks run when it finishes._")
 
-            with st.spinner("Thinking… the first words usually appear within a few seconds."):
-                try:
-                    client = factory.client_from_env(max_tokens=1500)
-                except (ValueError, RuntimeError) as exc:
-                    result_md, footer = f"Can't start the model: {exc}", None
-                else:
-                    result = answer(question, client, portfolio, include_news, on_text=show_partial)
-                    result_md, footer = result.markdown, result.footer
+            memory = st.session_state.setdefault("answer_memory", {})
+            today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+            try:
+                model_name = Settings.from_env().model
+            except ValueError:
+                model_name = "?"
+            key = cache_key(question, include_news, portfolio, model_name, today)
+            if use_memory and key in memory:
+                result_md, footer = memory[key]
+                footer = f"{footer} · remembered from earlier today" if footer else "remembered from earlier today"
+            else:
+                with st.spinner("Thinking… the first words usually appear within a few seconds."):
+                    try:
+                        client = factory.client_from_env(max_tokens=1500)
+                    except (ValueError, RuntimeError) as exc:
+                        result_md, footer = f"Can't start the model: {exc}", None
+                    else:
+                        result = answer(question, client, portfolio, include_news, on_text=show_partial)
+                        result_md, footer = result.markdown, result.footer
+                        if result.kind in CACHEABLE_KINDS:
+                            memory[key] = (result_md, footer)
             live.markdown(result_md)               # the final, checked version replaces the draft
             if footer:
                 st.caption(footer)

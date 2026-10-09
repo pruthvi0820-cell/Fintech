@@ -138,6 +138,8 @@ def compute_fundamentals(st: Statements, now: pd.Timestamp | None = None) -> dic
     eq = _num(equity.iloc[0]) if len(equity) else None
     price = st.price
 
+    if st.price_note:
+        notes.append(st.price_note)
     same_currency = not (st.financial_currency and st.currency and st.financial_currency != st.currency)
     if not same_currency:
         notes.append(f"Statements are in {st.financial_currency} but the price is in {st.currency}: "
@@ -161,9 +163,10 @@ def compute_fundamentals(st: Statements, now: pd.Timestamp | None = None) -> dic
     # Not for banks: Yahoo's equity for HDFC Bank was ~1.6x the reported figure (FinTray computed 8.9%;
     # the bank's ROE on screener.in was 14.0% on 2026-10-09), so a bank ROE from Yahoo can't be trusted.
     roe = None
-    if financial:
-        notes.append("ROE is not shown for banks and lenders: Yahoo's shareholders' equity for banks did "
-                     "not match the banks' reported figures when checked, so the result would be wrong.")
+    if financial and st.source == "yfinance":
+        notes.append("ROE is not shown for banks and lenders from Yahoo data: Yahoo's shareholders' equity "
+                     "for banks did not match the banks' reported figures when checked. Upload the "
+                     "company's Screener export to see it.")
     elif ni is not None and eq is not None:
         if eq <= 0:
             notes.append("Shareholders' equity is zero or negative, so ROE is not meaningful.")
@@ -176,6 +179,9 @@ def compute_fundamentals(st: Statements, now: pd.Timestamp | None = None) -> dic
     if financial:
         notes.append("Debt-to-equity is not meaningful for banks and lenders (deposits and borrowings "
                      "are their raw material), so it is not shown.")
+    elif st.sector is None and st.source != "yfinance":
+        notes.append("The company's sector is unknown, so debt-to-equity is not shown (it would be "
+                     "misleading for a bank).")
     elif len(debt) and eq and eq > 0:
         d_e = _num(debt.iloc[0]) / eq
 

@@ -36,6 +36,7 @@ class Statements:
     shares: float | None            # shares outstanding (fallback when the balance sheet has none)
     source: str = "yfinance"
     fetched_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    price_note: str | None = None   # e.g. "price is from the Screener file, as of its download"
 
 
 def _frame(get) -> pd.DataFrame:
@@ -86,3 +87,25 @@ def fetch_statements(ticker: str) -> Statements:
         currency=currency or info.get("currency"), financial_currency=info.get("financialCurrency"),
         sector=info.get("sector"), shares=float(shares) if shares else None,
     )
+
+
+def fetch_quote(ticker: str) -> tuple[float | None, str | None, str | None]:
+    """(latest price, currency, sector) from Yahoo, best effort: (None, None, None) on any failure.
+    Used with a Screener file, which has statements but no live price or sector."""
+    try:
+        import yfinance as yf
+        yt = yf.Ticker(ticker.strip().upper())
+    except Exception:
+        return None, None, None
+    price = currency = sector = None
+    try:
+        fi = yt.fast_info
+        price = float(fi["last_price"]) if fi["last_price"] else None
+        currency = fi["currency"]
+    except Exception:
+        pass
+    try:
+        sector = (yt.info or {}).get("sector")
+    except Exception:
+        pass
+    return price, currency, sector

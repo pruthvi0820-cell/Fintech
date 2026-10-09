@@ -66,7 +66,7 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 346 tests, no network needed
+pytest                      # 358 tests, no network needed
 ```
 
 ## The page
@@ -109,6 +109,8 @@ python scripts/news_digest.py --no-llm
 
 # Company fundamentals from annual statements (numbers only; --rows shows which data rows were found)
 python scripts/fundamentals.py RELIANCE.NS TCS.NS HDFCBANK.NS --rows
+# ...or from a screener.in "Export to Excel" file you downloaded into ./imports (more reliable, banks especially)
+python scripts/fundamentals.py HDFCBANK.NS --screener "imports/HDFC Bank.xlsx" --rows
 
 # Everything for one stock in a single report (opens in your browser)
 python scripts/brief.py RELIANCE.NS

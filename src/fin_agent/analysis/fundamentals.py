@@ -155,9 +155,16 @@ def compute_fundamentals(st: Statements, now: pd.Timestamp | None = None) -> dic
         else:
             notes.append("The company made a loss in the latest year, so P/E is not meaningful.")
 
+    financial = (st.sector or "").strip().lower() in FINANCIAL_SECTORS
+
     # ROE on average equity when two years exist (the textbook form), else on year-end equity.
+    # Not for banks: Yahoo's equity for HDFC Bank was ~1.6x the reported figure (FinTray computed 8.9%;
+    # the bank's ROE on screener.in was 14.0% on 2026-10-09), so a bank ROE from Yahoo can't be trusted.
     roe = None
-    if ni is not None and eq is not None:
+    if financial:
+        notes.append("ROE is not shown for banks and lenders: Yahoo's shareholders' equity for banks did "
+                     "not match the banks' reported figures when checked, so the result would be wrong.")
+    elif ni is not None and eq is not None:
         if eq <= 0:
             notes.append("Shareholders' equity is zero or negative, so ROE is not meaningful.")
         else:
@@ -165,7 +172,6 @@ def compute_fundamentals(st: Statements, now: pd.Timestamp | None = None) -> dic
             base = (eq + prev) / 2 if prev and prev > 0 else eq
             roe = ni / base
 
-    financial = (st.sector or "").strip().lower() in FINANCIAL_SECTORS
     d_e = None
     if financial:
         notes.append("Debt-to-equity is not meaningful for banks and lenders (deposits and borrowings "

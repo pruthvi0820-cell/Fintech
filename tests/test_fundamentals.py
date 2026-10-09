@@ -63,10 +63,13 @@ def test_loss_making_company_has_no_pe_or_growth_from_a_loss():
     assert f["roe"] < 0                                               # a negative ROE is still a fact
 
 
-def test_bank_has_no_debt_to_equity():
+def test_bank_has_no_debt_to_equity_and_no_roe():
+    # HDFC Bank, 2026-10-09: Yahoo's equity gave ROE 8.9%; the bank's reported ROE was 14.0%.
     f = compute_fundamentals(statements(sector="Financial Services"), now=NOW)
-    assert f["debt_to_equity"] is None
-    assert any("banks and lenders" in n for n in f["data_notes"])
+    assert f["debt_to_equity"] is None and f["roe"] is None
+    assert any("Debt-to-equity is not meaningful for banks" in n for n in f["data_notes"])
+    assert any("ROE is not shown for banks" in n for n in f["data_notes"])
+    assert f["pe"] == 25.0 and f["net_profit_crore"] == 200.0          # the rest is still shown
 
 
 def test_negative_equity_has_no_roe_or_debt_to_equity():

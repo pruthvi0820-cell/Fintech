@@ -347,6 +347,32 @@ def _sma(m: re.Match, g: str, snapshot: dict[str, Any]) -> tuple[str, float] | N
     return (f"sma{n}", float(v)) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
+_VOL_PERIODS = (
+    ("20d", re.compile(r"\b(?:past|last)\s+20\s+(?:trading\s+)?days\b|\b20[\s-]?day\b|\b20d\b", re.IGNORECASE)),
+    ("1y", re.compile(r"\b(?:past|last)\s+(?:year|12\s+months)\b|\b(?:1|one)[\s-]?year\b|\b1y\b", re.IGNORECASE)),
+)
+
+
+def _volatility_named(clause: str, word: re.Match, snapshot: dict[str, Any]) -> str | None:
+    """"Volatility is higher in the past 20 days than in the past year" (trend-v8 audit, TCS):
+    the period named first is the subject. Only when the clause names volatility and both periods."""
+    if "volatil" not in clause.lower():
+        return None
+    vol = snapshot.get("volatility_annualized") or {}
+    hits = sorted((m.start(), key) for key, rx in _VOL_PERIODS for m in [rx.search(clause)] if m)
+    if len(hits) != 2:
+        return None
+    (_, a), (_, b) = hits
+    va, vb = vol.get(a), vol.get(b)
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (va, vb)) or va == vb:
+        return None
+    up = word.group("up") is not None
+    if up == (va > vb):
+        return None
+    return (f"'{word.group(0)}': {a} volatility is {va * 100:.2f}% and {b} volatility is {vb * 100:.2f}%, "
+            f"so {a} is {'lower' if up else 'higher'}")
+
+
 def check_comparisons(text: str, snapshot: dict[str, Any]) -> list[str]:
     """Comparisons between two values that the values contradict.
 
@@ -381,8 +407,11 @@ def check_comparisons(text: str, snapshot: dict[str, Any]) -> list[str]:
             continue
 
         clean = _strip(clause)
-        nums = [n for n in _NUM.finditer(clean) if not _is_window_label(clean, n)]
         words = list(_COMPARATIVE.finditer(clean))
+        if len(words) == 1 and (note := _volatility_named(clean, words[0], snapshot)):
+            add(note)
+            continue
+        nums = [n for n in _NUM.finditer(clean) if not _is_window_label(clean, n)]
         if len(nums) < 2 or not words:
             continue
         first = nums[0]

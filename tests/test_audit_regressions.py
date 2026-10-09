@@ -65,7 +65,7 @@ TMPV = {  # trend-v6 audit: 52-week fields removed by the corporate-action guard
 }
 # trend-v7 audit, bars of 2026-10-09
 R7 = {"last_close": 1170.3, "sma": {"20": 1217.64, "50": 1271.792, "200": 1351.6178}, "rsi14": 35.42,
-      "rsi_zone": "neutral (30 to 70)",
+      "rsi_zone": "neutral (30 to 70)", "close_vs_sma_pct": {"20": -0.0389, "50": -0.0798, "200": -0.1341},
       "macd": {"macd": -26.7928, "signal": -25.1172, "hist": -1.6756}, "macd_above_signal": False,
       "volatility_annualized": {"20d": 0.229, "1y": 0.2118}, "returns": {"1y": -0.141}, "max_drawdown_1y": -0.2633,
       "high_52w": 1584.9718, "low_52w": 1167.7}
@@ -80,6 +80,7 @@ H7 = {"last_close": 707.25, "sma": {"20": 717.705, "50": 721.451, "200": 800.955
       "macd": {"macd": -5.1477, "signal": -3.1093, "hist": -2.0384}, "macd_above_signal": False,
       "high_52w": 993.0751, "low_52w": 687.1}
 M7 = {"last_close": 279.9, "sma": {"20": 292.405, "50": 312.9, "200": 341.279}, "rsi14": 36.89,
+      "close_vs_sma_pct": {"20": -0.0428, "50": -0.1055, "200": -0.1798},
       "macd": {"macd": -9.4757, "signal": -9.0696, "hist": -0.4061}, "macd_above_signal": False,
       "volume_ratio_20d_vs_60d": 1.229, "high_52w": None, "low_52w": None}
 TCS_V5 = {"last_close": 2076.0, "sma": {"20": 2115.155, "50": 2247.982, "200": 2436.8905},
@@ -108,9 +109,14 @@ def all_flags(text, snap):
     (I7, "MACD is above the signal line, indicating a potential bullish crossover."),
     (R7, "The 50-day SMA is above the 20-day SMA, which is unusual in a downtrend."),
     (M7, "The 50-day SMA is above the 20-day SMA, which is unusual in a downtrend."),
+    # trend-v8 audit
+    (T7, "The annualized volatility is slightly higher in the past 20 days than in the past year."),
+    (T7, "The 50-day SMA is above the 200-day SMA, but the close is between the 20-day and 50-day SMAs."),
+    (R7, "The 50-day SMA is above the 200-day SMA, which contradicts the downtrend label."),
 ], ids=["support-above-close", "macd-sign", "potential-crossover", "computed-difference",
         "v7-sma50-above-sma200-numbers", "v7-sma50-above-sma200-names", "v7-volatility-higher",
-        "v7-potential-crossover", "v7-unusual-reliance", "v7-unusual-tmpv"])
+        "v7-potential-crossover", "v7-unusual-reliance", "v7-unusual-tmpv",
+        "v8-volatility-named", "v8-sma50-above-sma200-tcs", "v8-sma50-above-sma200-reliance"])
 def test_audit_wrong_sentences_stay_caught(snap, text):
     assert all_flags(text, snap)
 
@@ -159,6 +165,18 @@ def test_audit_wrong_sentences_stay_caught(snap, text):
          "and 200-day SMA at 341.279."),
     (M7, "The 20-day volume ratio is 1.229 times the 60-day average, indicating higher recent trading activity."),
     (M7, "No 1-year return data is available, and key metrics like annualized volatility and drawdown are excluded."),
+    # trend-v8 audit, marked fine
+    (R7, "The 50-day SMA is 1271.79, and the close is 7.98% below it."),
+    (R7, "Volatility is higher in the past 20 days than in the past year."),
+    (T7, "The last close is 2156.0, below the 50-day SMA (2254.22) and 200-day SMA (2455.97)."),
+    (T7, "The close is below the 50-day SMA, suggesting weakness, but the MACD line is above the signal."),
+    ({**I7, "volatility_annualized": {"20d": 0.2792, "1y": 0.3048}},
+     "The annualized volatility is 30.5%, higher than the 20-day volatility of 27.9%."),
+    (H7, "The 50-day SMA is above the 20-day SMA, but the 50-day SMA is below the 200-day SMA."),
+    (H7, "MACD is -5.1477, below the signal line (-3.1093), and the histogram is negative (-2.0384)."),
+    (M7, "The 20-day SMA is 292.405, and the close is 4.28% below it."),
+    (M7, "The 50-day SMA is below the 200-day SMA, reinforcing the downtrend."),
+    (M7, "Not covered: This analysis does not include 52-week high/low levels or annualized volatility."),
 ], ids=lambda x: x[:40] if isinstance(x, str) else "")
 def test_audit_fine_sentences_are_not_flagged(snap, text):
     assert all_flags(text, snap) == []
@@ -244,6 +262,17 @@ def test_model_written_levels_section_is_dropped():
 ])
 def test_comparison_check_edges(text, flagged):
     assert bool(check_comparisons(text, H7)) is flagged
+
+
+@pytest.mark.parametrize(("text", "flagged"), [
+    ("Volatility is lower in the past year than in the past 20 days.", True),     # 28.79% > 27.43%
+    ("The 1-year volatility is higher than the 20-day volatility.", False),
+    ("Volatility is higher in the past 20 days.", False),                       # one period: no comparison
+    ("Volatility is not higher in the past 20 days than in the past year.", False),
+])
+def test_volatility_named_comparison(text, flagged):
+    assert bool(check_comparisons(text, T7)) is flagged
+    assert check_comparisons(text, {"volatility_annualized": {"20d": 0.2, "1y": None}}) == []
 
 
 def test_rule_words_found_once_each_and_typical_or_significant_are_allowed():

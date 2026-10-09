@@ -262,3 +262,30 @@ def test_streaming_bad_chunk_raises_clear_error(monkeypatch):
 def test_non_streaming_request_is_unchanged(monkeypatch):
     _, sent = _complete(monkeypatch, _reply("ok"))
     assert "stream" not in sent and "stream_options" not in sent
+
+
+class BytesStream(FakeStream):
+    """Like requests: bytes by default; decode_unicode would use ISO-8859-1 (no charset in the header)."""
+
+    def iter_lines(self, decode_unicode=False):
+        for line in self._lines:
+            b = line.encode("utf-8")
+            yield b.decode("iso-8859-1") if decode_unicode else b
+
+
+def test_stream_decodes_utf8_rupee_sign(monkeypatch):
+    lines = [f"data: {json.dumps(delta('Revenue ₹348,615.2 crore — up 3.6%'), ensure_ascii=False)}", "",
+             f"data: {json.dumps(delta(finish='stop'))}", "", "data: [DONE]"]
+    monkeypatch.setattr(openai_compat.requests, "post", lambda url, **kw: BytesStream(lines))
+    seen = []
+    res = openai_compat.OpenAICompatClient("http://x/v1", "qwen3:8b", think=False).complete("s", "u", on_text=seen.append)
+    assert res.text == "Revenue ₹348,615.2 crore — up 3.6%" and "â" not in res.text
+    assert seen[-1] == res.text
+
+
+def test_rupee_amounts_trace_once_decoded():
+    from fin_agent.analysis.output_checks import check_numbers
+    facts = {"revenue_crore": 348615.2, "net_profit_crore": 76026.0}
+    assert check_numbers("Revenue ₹348,615.2 crore and net profit ₹76,026.0 crore.", facts).ok
+    # the garbled form produced false alarms: "¹" counts as a letter, so the numbers were cut short
+    assert not check_numbers("Revenue â¹348,615.2 crore.", facts).ok

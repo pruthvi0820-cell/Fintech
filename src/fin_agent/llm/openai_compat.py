@@ -84,7 +84,10 @@ class OpenAICompatClient:
     def _read_stream(self, r: Any, on_text: Callable[[str], None]) -> tuple[str, bool, str | None, dict, str | None]:
         """Read server-sent events: lines 'data: {json}', ending with 'data: [DONE]'."""
         raw, saw_reasoning, finish, usage, model, shown = "", False, None, {}, None, 0
-        for line in r.iter_lines(decode_unicode=True):
+        # Bytes, decoded here as UTF-8: requests' decode_unicode falls back to ISO-8859-1 for a
+        # text/event-stream without a charset, which turned "₹" into "â¹" (2026-10-09 fundamentals test).
+        for raw_line in r.iter_lines():
+            line = raw_line.decode("utf-8", errors="replace") if isinstance(raw_line, bytes) else raw_line
             if not line or not line.startswith("data:"):
                 continue                                  # blank lines and keep-alive comments
             data = line[5:].strip()

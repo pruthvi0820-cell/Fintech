@@ -47,9 +47,12 @@ def _usable_close(close: pd.Series) -> tuple[pd.Series, str | None]:
     bars_ago = _bars_since_last_large_move(close)
     if bars_ago is None:
         return close, None
-    kept = close.iloc[len(close) - 1 - bars_ago:]
-    return kept, (f"Only the {len(kept)} trading days after a large one-day move (likely an unadjusted "
-                  "corporate action) are used.")
+    start = len(close) - 1 - bars_ago
+    kept = close.iloc[start:]
+    move = close.iloc[start] / close.iloc[start - 1] - 1 if start > 0 else 0.0
+    return kept, (f"Only the {len(kept)} trading days after a {move * 100:+.0f}% one-day move on "
+                  f"{close.index[start].date().isoformat()} are used (an unadjusted corporate action or a real "
+                  "market shock; prices before it may not be comparable).")
 
 
 def holding_record(close: pd.Series, label: str, days: int, cost_per_side: float) -> Record:
@@ -75,6 +78,17 @@ def holding_record(close: pd.Series, label: str, days: int, cost_per_side: float
         avg_loss=float(losses.mean()) if len(losses) else None,
         holding=label, note=" ".join(notes) or None,
     )
+
+
+def rate_text(rate: float | None) -> str:
+    """Percent for display, without letting rounding hide rare cases: 0.3% shows as "<1%", not "0%"."""
+    if rate is None:
+        return "–"
+    if 0 < rate < 0.005:
+        return "<1%"
+    if 0.995 < rate < 1:
+        return ">99%"
+    return f"{rate * 100:.0f}%"
 
 
 def swing_record(result: BacktestResult) -> Record:

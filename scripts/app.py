@@ -18,7 +18,7 @@ import streamlit as st
 from fin_agent.analysis.backtest import DEFAULT_COST_PER_SIDE, backtest
 from fin_agent.analysis.risk import DEFAULT_RISK_PCT, PlanError, plan_trade
 from fin_agent.analysis.signals import latest_signals
-from fin_agent.analysis.summary import minimum_to_buy, stock_records, your_record
+from fin_agent.analysis.summary import minimum_to_buy, rate_text, stock_records, your_record
 from fin_agent.charts import candle_chart
 from fin_agent.config import Settings
 from fin_agent.data import market_data
@@ -172,8 +172,7 @@ def summary_section(ticker: str, last_close: float, result, cost_per_side: float
 
     pct = lambda x: "–" if x is None else f"{x * 100:+.1f}%"   # noqa: E731
     rows = [{
-        "Style": r.style, "Win rate": "–" if r.win_rate is None else f"{r.win_rate * 100:.0f}%",
-        "Loss rate": "–" if r.loss_rate is None else f"{r.loss_rate * 100:.0f}%",
+        "Style": r.style, "Win rate": rate_text(r.win_rate), "Loss rate": rate_text(r.loss_rate),
         "Avg profit when it won": pct(r.avg_win), "Avg loss when it lost": pct(r.avg_loss),
         "Holding time": r.holding, "Based on": r.based_on, "Note": r.note or "",
     } for r in stock_records(result, long_close, cost_per_side)]

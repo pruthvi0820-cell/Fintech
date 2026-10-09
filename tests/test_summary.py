@@ -47,7 +47,7 @@ def test_few_separate_periods_are_shown_but_flagged_as_thin():
 def test_corporate_action_gap_cuts_the_history():
     vals = np.r_[np.linspace(100, 110, 600), np.linspace(60, 66, 400)]   # -45% one-day drop (demerger)
     r = holding_record(closes(vals), "1 month", 21, cost_per_side=0.0)
-    assert r.win_rate == 1.0 and "after a large one-day move" in r.note
+    assert r.win_rate == 1.0 and "-45% one-day move on 2018-04-20" in r.note
     assert r.independent == 400 // 21                                    # only the bars after the gap
 
 
@@ -93,3 +93,10 @@ def test_stock_records_order_and_missing_long_history():
     assert full[-1].note.startswith("Thin evidence") and full[-2].note is None   # 5 years thin, 3 years fine
     # with 0.15% costs a side, a 1-week gain of ~0.13% is a loss: costs matter for short holds
     assert stock_records(BacktestResult("a", "b"), closes(np.linspace(100, 200, 2600)), 0.0015)[2].win_rate < 0.5
+
+
+@pytest.mark.parametrize(("rate", "text"), [(None, "–"), (0.0, "0%"), (0.003, "<1%"), (0.5, "50%"),
+                                            (0.997, ">99%"), (1.0, "100%"), (0.996, ">99%"), (0.006, "1%")])
+def test_rate_text_never_rounds_rare_cases_away(rate, text):
+    from fin_agent.analysis.summary import rate_text
+    assert rate_text(rate) == text

@@ -14,7 +14,7 @@ import argparse
 import json
 import sys
 
-from fin_agent.analysis.fundamentals import compute_fundamentals, rows_found
+from fin_agent.analysis.fundamentals import compute_fundamentals, inputs_table, rows_found
 from fin_agent.data.fundamentals import FundamentalsError, fetch_statements
 
 
@@ -37,6 +37,7 @@ def main() -> int:
         print(json.dumps(compute_fundamentals(st), indent=2))
         if args.rows:
             print("rows used:", json.dumps(rows_found(st)))
+            print("inputs (crore; EPS in rupees):", json.dumps(inputs_table(st), indent=2))
             print("fiscal years:", [c.date().isoformat() for c in st.income.columns] or "none")
             print("income rows:", list(st.income.index))
             print("balance rows:", list(st.balance.index))

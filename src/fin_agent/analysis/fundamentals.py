@@ -27,6 +27,9 @@ ROWS: dict[str, tuple[str, ...]] = {
     "debt": ("Total Debt",),
     "shares": ("Ordinary Shares Number", "Share Issued"),
 }
+# Shareholders' equity rising this much in one year usually means a merger or a large share issue, not
+# organic growth (HDFC Bank absorbed HDFC Ltd in July 2023). Growth across that year isn't like-for-like.
+EQUITY_JUMP = 0.40
 # Debt is a bank's raw material (deposits, borrowings), so debt-to-equity says nothing useful there.
 FINANCIAL_SECTORS = {"financial services", "financials", "financial"}
 CRORE = 1e7
@@ -58,6 +61,33 @@ def _growth(new: float | None, old: float | None) -> float | None:
     if new is None or old is None or old <= 0:
         return None
     return new / old - 1
+
+
+def inputs_table(st: Statements) -> dict[str, dict[str, float]]:
+    """Every statement value that feeds the ratios, in crore (EPS in rupees), by fiscal year.
+    Shown by the CLI so a surprising ratio can be traced to its inputs."""
+    out: dict[str, dict[str, float]] = {}
+    for key in ROWS:
+        df = st.balance if key in ("equity", "debt", "shares") else st.income
+        name, s = _row(df, key)
+        if name is None:
+            continue
+        scale = 1 if key == "eps" else CRORE
+        out[f"{key} ({name})"] = {d.date().isoformat(): round(float(v) / scale, 2) for d, v in s.items()}
+    return out
+
+
+def _equity_jump_note(equity: pd.Series, years: int) -> str | None:
+    """A note when equity rose by EQUITY_JUMP or more in any year inside the last `years` years."""
+    vals = [_num(v) for v in equity.iloc[: years + 1]]
+    for i in range(len(vals) - 1):
+        new, old = vals[i], vals[i + 1]
+        if new and old and old > 0 and new / old - 1 >= EQUITY_JUMP:
+            fy = equity.index[i].date().isoformat()
+            return (f"Shareholders' equity rose {100 * (new / old - 1):.0f}% in the year to {fy}. That usually "
+                    "means a merger or a large share issue, so growth figures spanning that year are not "
+                    "like-for-like.")
+    return None
 
 
 def rows_found(st: Statements) -> dict[str, str | None]:
@@ -150,6 +180,10 @@ def compute_fundamentals(st: Statements, now: pd.Timestamp | None = None) -> dic
         new, old = _num(revenue.iloc[0]), _num(revenue.iloc[3])
         if new and old and old > 0 and new > 0:
             rev_cagr = (new / old) ** (1 / 3) - 1
+
+    if len(equity) > 1 and (rev_g is not None or ni_g is not None or rev_cagr is not None):
+        if note := _equity_jump_note(equity, 3 if rev_cagr is not None else 1):
+            notes.append(note)
 
     div_yield = None
     if price and same_currency:

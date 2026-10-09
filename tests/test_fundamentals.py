@@ -171,3 +171,31 @@ def test_fetch_with_no_statements_raises(monkeypatch):
     fake_yf(monkeypatch, FakeTicker(pd.DataFrame(), None))
     with pytest.raises(FundamentalsError, match="no financial statements"):
         fetch_statements("NOPE.NS")
+
+
+# ---- mergers and the inputs table (2026-10-09 run: HDFC Bank's 3-year growth spans the July 2023 merger)
+
+def test_equity_jump_flags_growth_that_spans_a_merger():
+    bal = frame({"Stockholders Equity": [500 * CR, 450 * CR, 420 * CR, 260 * CR]})   # +62% in FY2024
+    f = compute_fundamentals(statements(balance=bal), now=NOW)
+    assert f["revenue_cagr_3y"] is not None                          # the number stays, with a caveat
+    assert any("rose 62% in the year to 2024-03-31" in n and "merger" in n for n in f["data_notes"])
+
+
+def test_equity_jump_outside_the_growth_window_is_not_flagged():
+    inc = frame({"Total Revenue": [110 * CR, 100 * CR], "Net Income": [20 * CR, 18 * CR]})   # 1-year growth only
+    bal = frame({"Stockholders Equity": [500 * CR, 450 * CR, 260 * CR]})                     # jump two years back
+    f = compute_fundamentals(statements(income=inc, balance=bal), now=NOW)
+    assert not any("merger" in n for n in f["data_notes"])
+
+
+def test_normal_equity_growth_is_not_flagged():
+    assert not any("merger" in n for n in compute_fundamentals(statements(), now=NOW)["data_notes"])   # +22%
+
+
+def test_inputs_table_in_crore_with_row_names():
+    from fin_agent.analysis.fundamentals import inputs_table
+    t = inputs_table(statements())
+    assert t["revenue (Total Revenue)"]["2026-03-31"] == 1331.0
+    assert t["eps (Diluted EPS)"] == {"2026-03-31": 40.0, "2025-03-31": 32.0}
+    assert t["equity (Stockholders Equity)"]["2025-03-31"] == 900.0

@@ -3,7 +3,9 @@
 Routing is deterministic (no model call), so it is testable and cannot be talked out of a route:
 - portfolio words ("my portfolio", "diversified", "allocation") -> portfolio explanation
 - a ticker or known company name -> trend analysis (and optionally news)
-- anything else -> tutor (general explanation, clearly labelled as not checked against data)
+- anything else -> tutor (general explanation, clearly labelled as not checked against data; if the
+  user's saved notes match, they are given to the model, cited, and the numbers checked against them)
+- "/store", "/list", "/update", "/delete", "/history", "/help" -> the user's notes, handled in Python
 Every route keeps the existing safety layers: Python numbers, checks after generation, escaping.
 """
 
@@ -27,7 +29,9 @@ from fin_agent.llm.prompts import (
     TUTOR_PROMPT_VERSION,
     TUTOR_SYSTEM,
     build_portfolio_user_prompt,
+    build_tutor_user_prompt,
 )
+from fin_agent.knowledge.notes import NoteStore, is_command, notes_block, run_command
 from fin_agent.pipelines.brief import esc, md_link, safe_model_text
 from fin_agent.pipelines.news import build_news_digest
 from fin_agent.pipelines.trend import build_trend_report
@@ -75,7 +79,7 @@ def find_ticker(question: str, portfolio: Portfolio | None = None) -> str | None
 
 @dataclass
 class Answer:
-    kind: str                    # "stock" | "portfolio" | "tutor" | "notice" | "error"
+    kind: str                    # "stock" | "portfolio" | "tutor" | "notes" | "notice" | "error"
     markdown: str                # already escaped: safe to render as markdown
     footer: str | None = None    # model | prompt version | tokens
 
@@ -83,7 +87,8 @@ class Answer:
 CACHEABLE_KINDS = frozenset({"stock", "portfolio", "tutor"})   # never remember errors or notices
 
 
-def cache_key(question: str, include_news: bool, portfolio: Portfolio | None, model: str, day: str) -> tuple:
+def cache_key(question: str, include_news: bool, portfolio: Portfolio | None, model: str, day: str,
+              notes_version: str = "") -> tuple:
     """Same question, same day, same model, same portfolio and news setting -> same answer.
 
     `day` should be the trading day (IST date) so answers expire overnight, when prices change.
@@ -91,7 +96,7 @@ def cache_key(question: str, include_news: bool, portfolio: Portfolio | None, mo
     q = " ".join((question or "").lower().split())
     holdings = tuple(sorted((h.symbol, h.quantity, h.avg_cost, h.last_price) for h in portfolio.holdings)) \
         if portfolio else ()
-    return (q, bool(include_news), holdings, model, day)
+    return (q, bool(include_news), holdings, model, day, notes_version)
 
 
 def _footer(res: Any, version: str) -> str:
@@ -147,10 +152,18 @@ def _portfolio(question: str, client: LLMClient, portfolio: Portfolio | None, st
     return Answer("portfolio", "\n".join(parts), _footer(res, PORTFOLIO_PROMPT_VERSION))
 
 
-def _tutor(question: str, client: LLMClient, stream: dict) -> Answer:
-    res = client.complete(TUTOR_SYSTEM, question, **stream)
+def _tutor(question: str, client: LLMClient, stream: dict, notes: NoteStore | None = None) -> Answer:
+    found = notes.search(question) if notes is not None else []
+    block = notes_block(found) if found else None
+    res = client.complete(TUTOR_SYSTEM, build_tutor_user_prompt(question, block), **stream)
     parts = [f"> {TRUNCATION_WARNING}", ""] if res.truncated else []
-    parts += [safe_model_text(res.text), "", NOT_CHECKED]
+    parts.append(safe_model_text(res.text))
+    if found:
+        check = check_numbers(res.text, {"notes": block, "question": question})
+        cited = ", ".join(f"#{n.id}" for n in found)
+        parts += ["", f"> Given your saved notes {cited}. {esc(check.summary())}"]
+    else:
+        parts += ["", NOT_CHECKED]
     return Answer("tutor", "\n".join(parts), _footer(res, TUTOR_PROMPT_VERSION))
 
 
@@ -163,6 +176,7 @@ def answer(
     trend_builder: Callable[..., Any] = build_trend_report,
     news_builder: Callable[..., Any] = build_news_digest,
     on_text: Callable[[str], None] | None = None,
+    notes: NoteStore | None = None,
 ) -> Answer:
     """Route a question and return a rendered, checked answer. Never raises for expected failures.
 
@@ -172,6 +186,10 @@ def answer(
     q = (question or "").strip()
     if not q:
         return Answer("notice", "Type a question first.")
+    if is_command(q):            # notes commands: Python only, no model; checked before the length limit
+        if notes is None:
+            return Answer("notice", "Your notes are not available (the notes file could not be opened).")
+        return Answer("notes", esc(run_command(q, notes)))
     if len(q) > MAX_QUESTION_CHARS:
         return Answer("notice", f"Please keep questions under {MAX_QUESTION_CHARS} characters.")
     try:
@@ -179,7 +197,7 @@ def answer(
             return _portfolio(q, client, portfolio, stream)
         if ticker := find_ticker(q, portfolio):
             return _stock(ticker, client, include_news, trend_builder, news_builder, stream)
-        return _tutor(q, client, stream)
+        return _tutor(q, client, stream, notes)
     except MarketDataError as exc:
         return Answer("error", f"Could not get price data. {esc(str(exc))}")
     except requests.Timeout:

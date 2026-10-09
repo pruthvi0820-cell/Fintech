@@ -22,7 +22,7 @@ def _paths(obj, prefix=""):
 def test_prompt_versions():
     from fin_agent.llm.prompts import PORTFOLIO_PROMPT_VERSION, TUTOR_PROMPT_VERSION
     assert (TREND_PROMPT_VERSION, PORTFOLIO_PROMPT_VERSION, TUTOR_PROMPT_VERSION) == \
-        ("trend-v8", "portfolio-v2", "tutor-v2")
+        ("trend-v8", "portfolio-v2", "tutor-v3")
 
 
 def test_every_field_the_prompt_names_exists_in_the_snapshot():

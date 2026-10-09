@@ -87,7 +87,7 @@ def test_tutor_route_is_labelled_unchecked():
     client = FakeClient("RSI measures momentum. What range is 'neutral'?")
     a = answer("What is RSI?", client)
     assert a.kind == "tutor" and client.calls[0][0] == TUTOR_SYSTEM
-    assert "not** checked against market data" in a.markdown and "tutor-v2" in a.footer
+    assert "not** checked against market data" in a.markdown and "tutor-v3" in a.footer
 
 
 def test_portfolio_question_without_upload_does_not_call_the_model():

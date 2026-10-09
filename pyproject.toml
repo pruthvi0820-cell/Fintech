@@ -16,6 +16,7 @@ dependencies = [
     "feedparser>=6.0",
     "requests>=2.31",
     "openpyxl>=3.1",                     # reads screener.in Excel exports
+    "pypdf>=4.0",                        # reads PDFs saved as notes
     "tzdata; sys_platform == 'win32'",   # zoneinfo needs this on Windows
 ]
 

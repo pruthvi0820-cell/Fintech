@@ -27,6 +27,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fin_agent.data.fundamentals import FundamentalsError, Statements
+from fin_agent.knowledge import notes as notes_mod
 from fin_agent.pipelines.ask import CACHEABLE_KINDS, answer, cache_key
 from fin_agent.pipelines.fundamentals import (SOURCE_LABELS, analysis_markdown, build_fundamentals_report,
                                               load_statements)
@@ -151,6 +152,33 @@ def log_decision_section(ticker: str, sig: dict, plan, last_close: float, cost_p
         st.error(f"Could not save to the journal: {exc}")
     else:
         st.success(f"Saved as journal entry #{entry_id}.")
+
+
+def get_notes() -> notes_mod.NoteStore | None:
+    try:
+        return notes_mod.NoteStore(notes_mod.default_path())
+    except (OSError, sqlite3.Error) as exc:
+        st.error(f"Can't open the notes file {notes_mod.default_path()}: {exc}")
+        return None
+
+
+def notes_panel(store: notes_mod.NoteStore | None) -> None:
+    """Upload files as notes. Typed notes use /store in the chat box."""
+    if store is None:
+        return
+    with st.expander(f"📝 Your notes ({len(store.all())} saved): commands and file upload"):
+        st.markdown(notes_mod.HELP)
+        c1, c2 = st.columns([1, 2])
+        topic = c1.text_input("Topic for the file", value="tax", key="notes_topic")
+        upload = c2.file_uploader("PDF, TXT or MD file", type=["pdf", "txt", "md"], key="notes_file")
+        if upload and st.button("Save file as notes"):
+            try:
+                saved = store.add_file(topic, upload.name, upload.getvalue())
+            except notes_mod.NoteError as exc:
+                st.error(str(exc))
+            else:
+                st.success(f"Saved {upload.name} as {len(saved)} note(s): #{saved[0].id}"
+                           + (f" to #{saved[-1].id}" if len(saved) > 1 else "") + f" under '{saved[0].topic}'.")
 
 
 def summary_section(ticker: str, last_close: float, result, cost_per_side: float) -> None:
@@ -474,6 +502,9 @@ with tab_chat:
     st.caption("Ask about a stock (use the NSE symbol, e.g. ITC.NS), your uploaded portfolio, "
                "or any finance idea. Every number about a stock or your portfolio is checked against data.")
 
+    notes_store = get_notes()
+    notes_panel(notes_store)
+
     pending = None
     if not st.session_state.messages:
         cols = st.columns(len(EXAMPLES))
@@ -490,7 +521,7 @@ with tab_chat:
             if msg.get("footer"):
                 st.caption(msg["footer"])
 
-    question = st.chat_input("Ask a question…") or pending
+    question = st.chat_input("Ask a question… (or /help for your notes)") or pending
     if question:
         st.session_state.messages.append({"role": "user", "content": question})
         with st.chat_message("user"):
@@ -507,8 +538,12 @@ with tab_chat:
                 model_name = Settings.from_env().model
             except ValueError:
                 model_name = "?"
-            key = cache_key(question, include_news, portfolio, model_name, today)
-            if use_memory and key in memory:
+            key = cache_key(question, include_news, portfolio, model_name, today,
+                            notes_store.version() if notes_store else "")
+            if notes_mod.is_command(question):      # notes commands: Python only, works even without the model
+                result = answer(question, None, notes=notes_store)
+                result_md, footer = result.markdown, None
+            elif use_memory and key in memory:
                 result_md, footer = memory[key]
                 footer = f"{footer} · remembered from earlier today" if footer else "remembered from earlier today"
             else:
@@ -518,7 +553,8 @@ with tab_chat:
                     except (ValueError, RuntimeError) as exc:
                         result_md, footer = f"Can't start the model: {exc}", None
                     else:
-                        result = answer(question, client, portfolio, include_news, on_text=show_partial)
+                        result = answer(question, client, portfolio, include_news, on_text=show_partial,
+                                        notes=notes_store)
                         result_md, footer = result.markdown, result.footer
                         if result.kind in CACHEABLE_KINDS:
                             memory[key] = (result_md, footer)

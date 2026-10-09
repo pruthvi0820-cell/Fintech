@@ -66,7 +66,7 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 395 tests, no network needed
+pytest                      # 419 tests, no network needed
 ```
 
 ## The page
@@ -105,6 +105,7 @@ streamlit run scripts/app.py        # opens http://localhost:8501
 - **Stocks:** "How is TCS.NS doing?" runs the checked trend analysis (turn on "Include news" for headlines too).
 - **Portfolio:** upload a holdings CSV exported from your broker app (Zerodha, Groww...). Weights, concentration and P&L are computed in Python; ask "Is my portfolio diversified?" for an explanation that is numerically checked.
 - **Concepts:** "What is RSI?" gets a tutor-style answer, labelled as not checked against data.
+- **Your notes:** type `/store tax: LTCG is 12.5% above ₹1.25 lakh from 23 July 2024. Source: Budget 2024`, then `/list`, `/update 3: …`, `/delete 3` (asks to confirm), `/history 3`, `/help`. Or upload a PDF/TXT/MD under **📝 Your notes**. When a question matches your notes, the AI is given them, cites them as "note #3", and its numbers are checked against them. Updates and deletes keep the old text. Stored only on this computer in `notes/notes.sqlite3` (git-ignored). Commands work even when the AI model is off.
 - The page can't place orders, and nothing it imports can reach a broker. On a laptop, an answer takes 1–3 minutes with a local model.
 
 ## Run

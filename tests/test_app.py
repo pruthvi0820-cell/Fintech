@@ -48,6 +48,7 @@ def button(at, label):
 def app(monkeypatch, tmp_path):
     st.cache_data.clear()
     monkeypatch.setenv("FIN_AGENT_JOURNAL_PATH", str(tmp_path / "journal.sqlite3"))
+    monkeypatch.setenv("FIN_AGENT_NOTES_PATH", str(tmp_path / "notes.sqlite3"))
     monkeypatch.setattr(market_data, "fetch_history", fake_history)
     monkeypatch.setattr(factory, "client_from_env", lambda max_tokens=1200: FakeClient())
     monkeypatch.setenv("FIN_AGENT_PROVIDER", "ollama")
@@ -71,7 +72,7 @@ def test_tutor_question_round_trip_is_escaped_and_labelled(app):
     shown = " ".join(m.value for m in app.markdown)
     assert "RSI measures momentum" in shown and "<script>" not in shown
     assert "not** checked against market data" in shown
-    assert any("tutor-v2" in c.value for c in app.caption)
+    assert any("tutor-v3" in c.value for c in app.caption)
 
 
 def test_portfolio_question_without_upload_asks_for_csv(app):
@@ -252,3 +253,17 @@ def test_chart_tab_shows_stock_summary_for_every_style(app):
                                       "Hold 3 months", "Hold 1 year", "Hold 3 years", "Hold 5 years"]
     assert "Upstox" in summary["Note"].iloc[0]
     assert summary["Win rate"].iloc[2].endswith("%")                       # 1-week record measured from 2y of data
+
+
+def test_notes_commands_in_the_chat_work_without_the_model(app, monkeypatch):
+    def no_model(max_tokens=1200):
+        raise RuntimeError("Ollama is not running")
+    monkeypatch.setattr(factory, "client_from_env", no_model)
+    app.run()
+    app.chat_input[0].set_value("/store tax: LTCG is 12.5% above ₹1.25 lakh. Source: Budget 2024").run()
+    assert not app.exception
+    app.chat_input[0].set_value("/list").run()
+    shown = " ".join(m.value for m in app.markdown)
+    assert "Saved as **note #1** [tax], source: Budget 2024." in shown and "**#1** [tax] LTCG is 12.5%" in shown
+    assert "Ollama is not running" not in shown
+    assert any("Your notes (1 saved)" in e.label for e in app.expander)

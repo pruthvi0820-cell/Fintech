@@ -162,7 +162,7 @@ def build_portfolio_user_prompt(question: str, snapshot: dict[str, Any]) -> str:
 
 # ---------------------------------------------------------------- tutor
 
-TUTOR_PROMPT_VERSION = "tutor-v2"
+TUTOR_PROMPT_VERSION = "tutor-v3"   # v3: answers from the user's saved notes, with citations
 
 TUTOR_SYSTEM = """You are a patient finance tutor for a beginner investor in India.
 
@@ -175,8 +175,18 @@ Rules:
 4. Do not tell the reader to buy, sell or hold anything, and give no price targets or personal
    financial advice.
 5. End with one short question that checks the reader understood.
+6. If the message includes the reader's saved notes, base the answer on them and cite each one you
+   use exactly as labelled, like (note #3). Use the notes' numbers as written and no made-up example
+   numbers. If a note disagrees with what you know, follow the note and say that it does. If the
+   notes don't answer the question, say so.
 
 Markdown, under 140 words."""
+
+
+def build_tutor_user_prompt(question: str, notes: str | None = None) -> str:
+    if not notes:
+        return question
+    return f"Question: {question}\n\nThe reader's saved notes:\n{notes}"
 
 
 # ---------------------------------------------------------------- company fundamentals

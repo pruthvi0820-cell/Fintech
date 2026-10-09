@@ -148,6 +148,23 @@ def _first(sec: dict[str, dict[date, float]], *labels: str) -> dict[date, float]
     return next((sec[_norm(l)] for l in labels if _norm(l) in sec), None)
 
 
+def share_count(data: ScreenerData) -> float | None:
+    """Shares outstanding today. Exports differ: some have META "Number of shares", the 2026-10-09
+    HDFC Bank export did not. Fallbacks: market cap / price (both META, same date), then the latest
+    balance-sheet "No. of Equity Shares" if it is a plain count (not in crore)."""
+    if n := data.meta.get("numberofshares"):
+        return float(n)
+    mcap, price = data.meta.get("marketcapitalization"), data.meta.get("currentprice")
+    if mcap and price and price > 0:
+        return mcap * CRORE / price
+    rows = data.sections.get("bs", {}).get("noofequityshares")
+    if rows:
+        latest = rows[max(rows)]
+        if latest > 1e6:
+            return float(latest)
+    return None
+
+
 def to_statements(data: ScreenerData, ticker: str, *, price: float | None = None, sector: str | None = None,
                   currency: str | None = "INR") -> Statements:
     """Screener figures in the shape compute_fundamentals expects (yfinance row names, rupees).
@@ -162,7 +179,7 @@ def to_statements(data: ScreenerData, ticker: str, *, price: float | None = None
     equity = None
     if capital and reserves:
         equity = {d: capital[d] + reserves[d] for d in capital if d in reserves}
-    shares_now = data.meta.get("numberofshares")
+    shares_now = share_count(data)
     balance_rows = {"Stockholders Equity": _series(equity), "Total Debt": _series(_first(bs, "Borrowings"))}
     if shares_now:
         latest = max(equity) if equity else None
@@ -173,9 +190,11 @@ def to_statements(data: ScreenerData, ticker: str, *, price: float | None = None
     balance = pd.DataFrame({k: v for k, v in balance_rows.items() if len(v)}).T
 
     # Dividend Amount is the year's total in crore; per share = amount / shares, dated at year-end.
-    dividends = pd.Series(dtype=float)
+    dividends: pd.Series | None = pd.Series(dtype=float)
     div = _first(pl, "Dividend Amount")
-    if div and shares_now:
+    if div and not shares_now:
+        dividends = None                    # dividends exist but can't be put per share: unknown, not 0
+    elif div:
         dividends = pd.Series({pd.Timestamp(d): v * CRORE / shares_now for d, v in div.items() if v > 0},
                               dtype=float)
         dividends.index = pd.DatetimeIndex(dividends.index).tz_localize("Asia/Kolkata")

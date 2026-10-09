@@ -99,15 +99,17 @@ def rows_found(st: Statements) -> dict[str, str | None]:
     return out
 
 
-def _dividend_yield(dividends: pd.Series, price: float, now: pd.Timestamp) -> tuple[float, str | None]:
+def _dividend_yield(dividends: pd.Series | None, price: float, now: pd.Timestamp) -> tuple[float | None, str | None]:
     """Dividends paid per share in the 12 months to today, divided by the price.
 
     Many Indian companies pay once a year, and the date shifts by a few weeks. If nothing was paid
     in the last 12 months but something was in the last 18, the 12 months ending at that payment
     are used (and the note says so), so a slightly late annual dividend doesn't read as 0%.
     """
-    if dividends is None or not len(dividends):
-        return 0.0, "Yahoo lists no dividends for this stock."
+    if dividends is None:
+        return None, "Dividend per share can't be worked out (the share count is missing), so the yield is not shown."
+    if not len(dividends):
+        return 0.0, "There are no dividends listed for this stock in the data."
     idx = pd.DatetimeIndex(dividends.index)
     idx = idx.tz_convert("UTC") if idx.tz is not None else idx.tz_localize("UTC")
     values = pd.to_numeric(pd.Series(dividends.to_numpy(), index=idx), errors="coerce").fillna(0.0)

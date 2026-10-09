@@ -130,3 +130,32 @@ def test_yahoo_bank_still_has_no_roe():
     from test_fundamentals import statements
     f = compute_fundamentals(statements(sector="Financial Services"), now=NOW)
     assert f["roe"] is None and any("Upload the company's Screener export" in n for n in f["data_notes"])
+
+
+# ---- the real HDFC Bank export (2026-10-09) had no META "Number of shares"
+
+def _without_share_count(tmp_path, keep_mcap=True):
+    path = workbook(tmp_path)
+    wb = openpyxl.load_workbook(path)
+    ws = wb["Data Sheet"]
+    for row in ws.iter_rows():
+        if row[0].value == "Number of shares" or (not keep_mcap and row[0].value == "Market Capitalization"):
+            row[0].value = "removed"
+    wb.save(path)
+    return path
+
+
+def test_share_count_from_market_cap_over_price(tmp_path):
+    from fin_agent.data.screener import share_count
+    data = read_screener(_without_share_count(tmp_path))
+    assert share_count(data) == pytest.approx(1_088_684 * 1e7 / 707.25)          # ~1,539 crore shares
+    f = compute_fundamentals(to_statements(data, "HDFCBANK.NS", price=707.25, sector="Financial Services"), now=NOW)
+    assert f["eps"] == pytest.approx(49.39, abs=0.05) and f["pe"] is not None and f["dividend_yield"] > 0
+
+
+def test_no_share_count_means_unknown_dividend_yield_not_zero(tmp_path):
+    data = read_screener(_without_share_count(tmp_path, keep_mcap=False))
+    f = compute_fundamentals(to_statements(data, "HDFCBANK.NS", price=707.25, sector="Financial Services"), now=NOW)
+    assert f["eps"] is None and f["pe"] is None and f["dividend_yield"] is None
+    assert any("share count is missing" in n for n in f["data_notes"])
+    assert not any("Yahoo" in n for n in f["data_notes"])

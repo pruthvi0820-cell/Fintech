@@ -28,7 +28,7 @@ class Statements:
     ticker: str
     income: pd.DataFrame            # rows = line items, columns = fiscal year-ends (newest first)
     balance: pd.DataFrame
-    dividends: pd.Series            # per-share cash dividends, DatetimeIndex
+    dividends: pd.Series | None     # per-share cash dividends, DatetimeIndex; None = unknown
     price: float | None             # latest close, for P/E and dividend yield
     currency: str | None            # price currency
     financial_currency: str | None  # statement currency (None = Yahoo didn't say)

@@ -37,7 +37,7 @@ The safety layering works like this:
 3. Python then checks the model's text:
    - **Numbers:** each figure must trace back to the data.
    - **Direction:** a percentage next to a direction word ("rose 12.3%", "1.1% above its 20-day", "26.3% drawdown") must have the same sign as the source value. Values with no reliable sign (headline text, figures present with both signs) are not direction-checked.
-   - **Facts:** a level called support must be below the close, and resistance above it. "MACD is positive/negative" must match its sign, and a crossover that already happened can't be called "potential".
+   - **Facts:** a level called support must be below the close, and resistance above it. "MACD is positive/negative" must match its sign, and a crossover that already happened can't be called "potential". Comparisons ("the 50-day is above the 200-day", "27.4% is higher than 28.8%") must be true of the values. Judgement words the rules forbid ("unusual", "elevated", "reversal") are flagged.
    - **Citations:** each news bullet must cite a real item.
 
 "What would change this read" (nearest level above and below the close, and the one level that changes the trend label) is written by code, not by the AI, and is marked that way in every report.
@@ -66,7 +66,7 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 271 tests, no network needed
+pytest                      # 307 tests, no network needed
 ```
 
 ## The page

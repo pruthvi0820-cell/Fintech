@@ -8,7 +8,8 @@ stay unflagged. Add new audit sentences here when a check changes.
 import pytest
 
 from fin_agent.analysis.indicators import levels_text
-from fin_agent.analysis.output_checks import check_levels, check_macd, check_numbers
+from fin_agent.analysis.output_checks import (check_comparisons, check_levels, check_macd, check_numbers,
+                                              check_rule_words)
 from fin_agent.llm.prompts import CODE_WRITTEN_FIELDS, TREND_SYSTEM, build_trend_user_prompt
 from fin_agent.pipelines.trend import drop_model_levels_section
 
@@ -62,6 +63,25 @@ TMPV = {  # trend-v6 audit: 52-week fields removed by the corporate-action guard
     "nearest_level_above": {"name": "sma20", "value": 293.785}, "nearest_level_below": None,
     "trend_label_change": {"close_must_go": "above", "level": "sma50", "value": 313.452, "new_label": "mixed"},
 }
+# trend-v7 audit, bars of 2026-10-09
+R7 = {"last_close": 1170.3, "sma": {"20": 1217.64, "50": 1271.792, "200": 1351.6178}, "rsi14": 35.42,
+      "rsi_zone": "neutral (30 to 70)",
+      "macd": {"macd": -26.7928, "signal": -25.1172, "hist": -1.6756}, "macd_above_signal": False,
+      "volatility_annualized": {"20d": 0.229, "1y": 0.2118}, "returns": {"1y": -0.141}, "max_drawdown_1y": -0.2633,
+      "high_52w": 1584.9718, "low_52w": 1167.7}
+T7 = {"last_close": 2156.0, "sma": {"20": 2119.37, "50": 2254.222, "200": 2455.9735}, "rsi14": 50.62,
+      "macd": {"macd": -41.9127, "signal": -51.4015, "hist": 9.4889}, "macd_above_signal": True,
+      "volatility_annualized": {"20d": 0.2743, "1y": 0.2879}, "high_52w": 3204.2817, "low_52w": 1971.7888,
+      "pct_below_52w_high": -0.3272}
+I7 = {"last_close": 1023.4, "sma": {"20": 1025.9375, "50": 1094.573, "200": 1233.955}, "rsi14": 45.3,
+      "macd": {"macd": -23.3765, "signal": -25.5239, "hist": 2.1474}, "macd_above_signal": True,
+      "returns": {"1y": -0.2658}, "max_drawdown_1y": -0.4043, "high_52w": 1654.0083, "low_52w": 985.3}
+H7 = {"last_close": 707.25, "sma": {"20": 717.705, "50": 721.451, "200": 800.9553}, "rsi14": 45.99,
+      "macd": {"macd": -5.1477, "signal": -3.1093, "hist": -2.0384}, "macd_above_signal": False,
+      "high_52w": 993.0751, "low_52w": 687.1}
+M7 = {"last_close": 279.9, "sma": {"20": 292.405, "50": 312.9, "200": 341.279}, "rsi14": 36.89,
+      "macd": {"macd": -9.4757, "signal": -9.0696, "hist": -0.4061}, "macd_above_signal": False,
+      "volume_ratio_20d_vs_60d": 1.229, "high_52w": None, "low_52w": None}
 TCS_V5 = {"last_close": 2076.0, "sma": {"20": 2115.155, "50": 2247.982, "200": 2436.8905},
           "high_52w": 3204.282, "low_52w": 1971.7888, "macd": {"macd": -46.3961, "signal": -51.6501, "hist": 5.2541},
           "macd_above_signal": True}
@@ -69,7 +89,8 @@ TCS_V5 = {"last_close": 2076.0, "sma": {"20": 2115.155, "50": 2247.982, "200": 2
 
 def all_flags(text, snap):
     num = check_numbers(text, snap)
-    return num.unverified + num.direction_mismatches + check_levels(text, snap) + check_macd(text, snap)
+    return (num.unverified + num.direction_mismatches + check_levels(text, snap) + check_macd(text, snap)
+            + check_comparisons(text, snap) + check_rule_words(text))
 
 
 # ---- sentences marked WRONG in the audits that a check can catch
@@ -81,7 +102,15 @@ def all_flags(text, snap):
     (RELIANCE, "The MACD line (-24.4469) is above the signal line (-25.0684), indicating a potential bullish crossover."),
     ({"last_close": 692.25, "low_52w": 687.1, "sma": {}},
      "The 52-week low is 687.1, and the close is 5.15 above it."),   # invented difference (HDFC v5)
-], ids=["support-above-close", "macd-sign", "potential-crossover", "computed-difference"])
+    (H7, "The 50-day SMA (721.451) is above the 200-day SMA (800.9553), contradicting the typical downtrend pattern."),
+    (H7, "The 50-day SMA is above the 200-day SMA, which is unusual in a downtrend."),
+    (T7, "The 20-day volatility (27.43%) is slightly higher than the 1-year volatility (28.79%)."),
+    (I7, "MACD is above the signal line, indicating a potential bullish crossover."),
+    (R7, "The 50-day SMA is above the 20-day SMA, which is unusual in a downtrend."),
+    (M7, "The 50-day SMA is above the 20-day SMA, which is unusual in a downtrend."),
+], ids=["support-above-close", "macd-sign", "potential-crossover", "computed-difference",
+        "v7-sma50-above-sma200-numbers", "v7-sma50-above-sma200-names", "v7-volatility-higher",
+        "v7-potential-crossover", "v7-unusual-reliance", "v7-unusual-tmpv"])
 def test_audit_wrong_sentences_stay_caught(snap, text):
     assert all_flags(text, snap)
 
@@ -107,6 +136,29 @@ def test_audit_wrong_sentences_stay_caught(snap, text):
     (TMPV, "The 52-week high and low are excluded due to corporate actions, so distance from these levels "
            "cannot be assessed."),
     (TMPV, "The volume ratio (20d vs 60d) is 1.185, indicating slightly higher recent trading activity."),
+    # trend-v7 audit, all marked fine
+    (R7, "The last close of 1170.3 is below all moving averages (sma20: 1217.64, sma50: 1271.792, sma200: 1351.6178)."),
+    (R7, "The RSI (14) is at 35.42, in the neutral zone (30 to 70)."),
+    (R7, "The MACD line (-26.7928) is below the signal line (-25.1172), and the MACD histogram is negative."),
+    (R7, "The 20-day volatility is 22.9%, slightly higher than the 1-year annualized volatility of 21.2%."),
+    (R7, "The 1-year return is -14.1%, with a maximum drawdown of -26.3%."),
+    (T7, "Downtrend, as labeled by the close below both the 50-day and 200-day moving averages."),
+    (T7, "The last close of 2156.0 is below the 50-day SMA (2254.22) and 200-day SMA (2455.97)."),
+    (T7, "The 52-week high is 3204.28, and the price is 32.72% below it."),
+    (T7, "MACD line (-41.91) is above the signal line (-51.40), indicating a crossover."),
+    (T7, "RSI is neutral at 50.62, with no oversold or overbought signal."),
+    (T7, "The 50-day SMA is above the close, acting as resistance."),
+    (I7, "The last close is 1023.4, below all moving averages (sma20: 1025.94, sma50: 1094.57, sma200: 1233.96)."),
+    (I7, "The 50-day SMA is below the 200-day SMA, reinforcing the downtrend."),
+    (I7, "The MACD line is negative (-23.38), suggesting bearish momentum."),
+    (I7, "The 1-year return is -26.58%, with a max drawdown of -40.43%."),
+    (H7, "The last close of 707.25 is below all moving averages (20, 50, 200), with the closest being 717.705 (20-day SMA)."),
+    (H7, "MACD is below the signal line, and the histogram is negative, indicating weak bearish momentum."),
+    (H7, "The close is below all SMAs, but the 20-day SMA is closer to the close than the 50-day."),
+    (M7, "The last close of 279.9 is below all moving averages (20, 50, 200), with the 50-day SMA at 312.9 "
+         "and 200-day SMA at 341.279."),
+    (M7, "The 20-day volume ratio is 1.229 times the 60-day average, indicating higher recent trading activity."),
+    (M7, "No 1-year return data is available, and key metrics like annualized volatility and drawdown are excluded."),
 ], ids=lambda x: x[:40] if isinstance(x, str) else "")
 def test_audit_fine_sentences_are_not_flagged(snap, text):
     assert all_flags(text, snap) == []
@@ -177,3 +229,29 @@ def test_model_written_levels_section_is_dropped():
     # section last in the text, and with a markdown heading form
     assert drop_model_levels_section("**Trend:** down.\n### **What would change this read**\n- sma20.") == \
         "**Trend:** down."
+
+
+# ---- comparison and rule-word checks: edges
+
+@pytest.mark.parametrize(("text", "flagged"), [
+    ("The 50-day SMA is not above the 200-day SMA.", False),                 # negation: skipped
+    ("The 20-day SMA is below the 50-day SMA.", False),                     # true
+    ("sma200 is lower than sma50.", True),                                  # false
+    ("The stock is 23.8% below its 52-week high of 1584.97.", False),        # mixed units: never compared
+    ("MACD is below the signal line (-3.2964 vs. -1.611).", False),          # comparative before both numbers
+    ("Volatility of 22.9% is above 21.2% but RSI is below 50.", False),      # two comparatives: skipped
+    ("RSI 45.99 is above 30 and below 70.", False),                          # two comparatives: skipped
+])
+def test_comparison_check_edges(text, flagged):
+    assert bool(check_comparisons(text, H7)) is flagged
+
+
+def test_rule_words_found_once_each_and_typical_or_significant_are_allowed():
+    found = check_rule_words("Unusual, unusual. A reversal. Elevated volatility.")
+    assert [f.split("'")[1] for f in found] == ["unusual", "reversal", "elevated"]
+    assert check_rule_words("This is typical in a downtrend, with significant downside.") == []
+
+
+def test_prompt_no_longer_invites_a_judgement_on_the_average_order():
+    assert "normal for shorter averages" not in TREND_SYSTEM
+    assert "do not call the order usual or unusual" in TREND_SYSTEM

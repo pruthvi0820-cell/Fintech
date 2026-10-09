@@ -12,6 +12,10 @@ a value, round it oddly, or "helpfully" compute a new one. These checks catch th
   (a ceiling) above it. The trend-v5 audit found "support at sma20" for an sma20 above the close.
 - check_macd: "MACD is positive" must match the sign of the value, and a crossover that has already
   happened must not be called "potential" (trend-v5 and v6 audits).
+- check_comparisons: "the 50-day SMA is above the 200-day SMA" and "27.43% is higher than 28.79%"
+  must be true of the values (trend-v7 audit: 5 of 6 wrong sentences compared two values wrongly).
+- check_rule_words: judgement words the trend prompt forbids ("unusual", "elevated", "reversal"...),
+  which the model still used (trend-v4 and v7 audits).
 - check_citations: every bullet in a news digest must cite items that exist.
 
 An "unverified" number is not necessarily wrong. It means a human should look.
@@ -322,6 +326,99 @@ def check_macd(text: str, snapshot: dict[str, Any]) -> list[str]:
                 if note not in out:
                     out.append(note)
     return out
+
+
+# ---------------------------------------------------------------- comparisons
+
+_SMA_NAME = r"(?:sma[\s_-]?(?P<{g}a>20|50|200)|(?P<{g}b>20|50|200)[\s-]?day(?:\s+(?:simple\s+)?(?:moving\s+)?(?:SMA|average|MA|DMA))?)"
+_SMA_PAIR = re.compile(
+    _SMA_NAME.format(g="x") + r"(?:\s*\([^)]*\))?\s+(?:is|was|remains|stays|sits|lies|trades)?\s*(?:still\s+)?"
+    r"(?P<cmp>above|below|higher\s+than|lower\s+than)\s+(?:the\s+|its\s+)?" + _SMA_NAME.format(g="y"),
+    re.IGNORECASE)
+_COMPARATIVE = re.compile(r"\b(?P<up>above|higher|greater|exceeds?|over)\b|\b(?P<down>below|lower|less|under)\b",
+                          re.IGNORECASE)
+_NEGATION = re.compile(r"\b(?:not|no|never)\b|n't\b", re.IGNORECASE)
+_CMP_CLAUSE = re.compile(r"(?<!\d)[.;!?](?!\d)|[.;!?](?=\s)|,(?!\d)|\n|\bvs\.?|\bversus\b", re.IGNORECASE)
+
+
+def _sma(m: re.Match, g: str, snapshot: dict[str, Any]) -> tuple[str, float] | None:
+    n = m.group(f"{g}a") or m.group(f"{g}b")
+    v = (snapshot.get("sma") or {}).get(n)
+    return (f"sma{n}", float(v)) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def check_comparisons(text: str, snapshot: dict[str, Any]) -> list[str]:
+    """Comparisons between two values that the values contradict.
+
+    Two narrow forms, clause by clause, skipped when the clause has a negation:
+    - named averages: "the 50-day SMA is above the 200-day SMA";
+    - numbers: "<a> ... higher than / above ... <b>", where a comes before the comparative word and
+      every number after it shares a's unit (all percentages or none). "3.9% below its 50-day of
+      1,398.2" mixes units, so it is never compared.
+    """
+    out: list[str] = []
+
+    def add(note: str) -> None:
+        if note not in out:
+            out.append(note)
+
+    # Blank out lists of window lengths ("(20, 50, 200)") first: their commas would split the clause.
+    for a, b in reversed(_window_list_spans(text)):
+        text = text[:a] + " " * (b - a) + text[b:]
+    for clause in _CMP_CLAUSE.split(text):
+        if not clause or _NEGATION.search(clause):
+            continue
+        named_flag = False
+        for m in _SMA_PAIR.finditer(clause):
+            a, b = _sma(m, "x", snapshot), _sma(m, "y", snapshot)
+            if not a or not b or a[0] == b[0] or a[1] == b[1]:
+                continue
+            up = m.group("cmp").lower().startswith(("above", "higher"))
+            if up != (a[1] > b[1]):
+                add(f"'{m.group(0)}' ({a[0]} is {a[1]}, {b[0]} is {b[1]})")
+                named_flag = True
+        if named_flag:
+            continue
+
+        clean = _strip(clause)
+        nums = [n for n in _NUM.finditer(clean) if not _is_window_label(clean, n)]
+        words = list(_COMPARATIVE.finditer(clean))
+        if len(nums) < 2 or not words:
+            continue
+        first = nums[0]
+        between = [w for w in words if first.end() <= w.start() < nums[1].start()]
+        if len(between) != 1 or len(words) != 1:
+            continue
+        up = between[0].group("up") is not None
+        unit = bool(_PCT_AFTER.match(clean, first.end()))
+        later = [n for n in nums[1:]]
+        if any(bool(_PCT_AFTER.match(clean, n.end())) != unit for n in later):
+            continue
+        a = _to_float(first.group(0))
+        for n in later:
+            b = _to_float(n.group(0))
+            if a != b and up != (a > b):
+                pct = "%" if unit else ""
+                add(f"'{between[0].group(0)}' compares {first.group(0)}{pct} with {n.group(0)}{pct}, "
+                    f"but {first.group(0)}{pct} is {'lower' if up else 'higher'}")
+    return out
+
+
+# ---------------------------------------------------------------- forbidden judgement words
+
+# Words the trend prompt forbids because the model has no history to judge them from. Only words
+# the audits marked wrong every time: "significant" and "typical" appeared in fine sentences.
+RULE_WORDS = ("unusual", "atypical", "elevated", "narrowing", "widening", "reversal")
+_RULE_WORDS = re.compile(r"\b(" + "|".join(RULE_WORDS) + r")s?\b", re.IGNORECASE)
+
+
+def check_rule_words(text: str) -> list[str]:
+    found = []
+    for m in _RULE_WORDS.finditer(text):
+        note = f"'{m.group(1).lower()}' (a judgement the data cannot support; the rules forbid it)"
+        if note not in found:
+            found.append(note)
+    return found
 
 
 @dataclass

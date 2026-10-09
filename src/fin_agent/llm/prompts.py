@@ -14,7 +14,7 @@ from fin_agent.data.news_sources import IST
 
 # ---------------------------------------------------------------- stock trend
 
-TREND_PROMPT_VERSION = "trend-v7"
+TREND_PROMPT_VERSION = "trend-v8"
 
 # trend-v3 changes, from the 2026-10-08 five-stock audit (15 wrong / 9 vague of 61 sentences):
 # - quote computed rsi_zone / ma_order / macd_above_signal instead of judging them
@@ -40,6 +40,12 @@ TREND_PROMPT_VERSION = "trend-v7"
 #   and the code-written fields are not sent to the model at all (CODE_WRITTEN_FIELDS).
 # - back to v5's wording otherwise (2 wrong / 8 vague), plus: the label uses only the averages,
 #   no predictions of further declines, no "reversal", MACD sign is separate from the crossover.
+# trend-v8, from the qwen3:8b trend-v7 audit (6 wrong of 40, 64 s per stock):
+# - 3x "the 50-day SMA is above the 20-day, which is unusual in a downtrend": the v3 sentence "in a
+#   downtrend it is normal for shorter averages to sit below longer ones" invited a judgement on the
+#   order. Replaced with "quote ma_order as written". Nothing else changed.
+# - the other wrong comparisons (sma50 "above" sma200, 27.43% "higher than" 28.79%) are caught by
+#   check_comparisons; forbidden words by check_rule_words.
 TREND_SYSTEM = """You are a careful equity research analyst writing for a single private investor.
 
 Hard rules:
@@ -53,9 +59,9 @@ Hard rules:
    further rises or declines.
 4. Some facts are already worked out for you. Quote them; do not judge these yourself:
    - `rsi_zone`: call RSI oversold or overbought only if `rsi_zone` says so.
-   - `ma_order` lists the close and the moving averages from lowest to highest. In a downtrend it is
-     normal for shorter averages to sit below longer ones. An average above the close acts as
-     resistance (a ceiling); an average below the close acts as support (a floor).
+   - `ma_order` lists the close and the moving averages from lowest to highest. Quote it as written
+     and do not call the order usual or unusual. An average above the close acts as resistance
+     (a ceiling); an average below the close acts as support (a floor).
    - `macd_above_signal`: true means the MACD line is already above its signal line: the crossover
      has happened, it is not "potential". The sign of `macd.macd` itself is a separate fact.
 5. `volume_ratio_20d_vs_60d` shows how much trading happened, not whether buyers or sellers led.

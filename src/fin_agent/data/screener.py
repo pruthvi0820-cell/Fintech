@@ -17,6 +17,7 @@ assumption until checked against a real file: `describe_workbook` prints what wa
 
 from __future__ import annotations
 
+import io
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -78,26 +79,31 @@ def _date(v: Any) -> date | None:
     return None
 
 
-def read_screener(path: str | Path) -> ScreenerData:
-    """Parse the Data Sheet. Raises ScreenerError with a plain reason on anything unexpected."""
+def read_screener(source: str | Path | bytes, name: str | None = None) -> ScreenerData:
+    """Parse the Data Sheet from a file path or uploaded bytes. Raises ScreenerError with a plain
+    reason on anything unexpected."""
     try:
         from openpyxl import load_workbook
     except ImportError as exc:   # pragma: no cover - depends on the install
         raise ScreenerError("Reading Excel needs openpyxl: pip install -e \".[dev,app]\"") from exc
 
-    path = Path(path)
-    if not path.is_file():
-        raise ScreenerError(f"No file at {path}.")
-    if path.stat().st_size > MAX_BYTES:
-        raise ScreenerError(f"{path.name} is larger than {MAX_BYTES // 1_000_000} MB; a Screener export is much smaller.")
+    if isinstance(source, (bytes, bytearray)):
+        name, size, handle = name or "The uploaded file", len(source), io.BytesIO(source)
+    else:
+        path = Path(source)
+        if not path.is_file():
+            raise ScreenerError(f"No file at {path}.")
+        name, size, handle = path.name, path.stat().st_size, path
+    if size > MAX_BYTES:
+        raise ScreenerError(f"{name} is larger than {MAX_BYTES // 1_000_000} MB; a Screener export is much smaller.")
     try:
-        wb = load_workbook(path, read_only=True, data_only=True)
+        wb = load_workbook(handle, read_only=True, data_only=True)
     except Exception as exc:   # openpyxl raises several types for non-Excel input
-        raise ScreenerError(f"{path.name} could not be opened as an Excel file ({type(exc).__name__}).") from exc
+        raise ScreenerError(f"{name} could not be opened as an Excel file ({type(exc).__name__}).") from exc
     try:
         sheet = next((wb[n] for n in wb.sheetnames if n.strip().lower() == DATA_SHEET), None)
         if sheet is None:
-            raise ScreenerError(f"No 'Data Sheet' tab in {path.name}. Tabs found: {', '.join(wb.sheetnames)}. "
+            raise ScreenerError(f"No 'Data Sheet' tab in {name}. Tabs found: {', '.join(wb.sheetnames)}. "
                                 "Is this a screener.in 'Export to Excel' file?")
         return _parse(list(sheet.iter_rows(values_only=True)))
     finally:

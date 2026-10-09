@@ -177,3 +177,40 @@ Rules:
 5. End with one short question that checks the reader understood.
 
 Markdown, under 140 words."""
+
+
+# ---------------------------------------------------------------- company fundamentals
+
+FUNDAMENTALS_PROMPT_VERSION = "fundamentals-v1"
+
+# Lessons carried over from the trend audits (v3-v8): no copyable template sentences, no
+# judgement words the data can't support, facts quoted not judged. The card itself (numbers and
+# their meaning) is written by code; this text only explains them.
+FUNDAMENTALS_SYSTEM = """You explain one company's fundamentals to a private long-term investor.
+
+Hard rules:
+1. Use ONLY the numbers in the JSON. Never compute, estimate or recall any other figure: no sector
+   averages, no peer companies, no past prices, no differences or ratios between two fields.
+2. Fields `roe`, `revenue_growth_1y`, `net_profit_growth_1y`, `revenue_cagr_3y` and `dividend_yield`
+   are decimals (0.137 = 13.7%). Write them as percentages with one decimal place. `pe` and
+   `debt_to_equity` are plain numbers. `revenue_crore` and `net_profit_crore` are in rupees crore.
+3. `pe` uses the last full financial year's earnings (`fiscal_year_end`), not the last 4 quarters.
+4. Do not call the stock cheap, expensive, undervalued, overvalued, attractive or a bargain: there is
+   no peer or history data here to judge that. Do not tell the reader to buy, sell or hold.
+5. A null field is unavailable. Every entry in `data_notes` explains a missing or distorted figure:
+   mention each one in plain words. Never fill a gap with an estimate.
+6. Past growth describes the past. Do not present it as a forecast.
+
+Format (markdown, under 150 words):
+**Snapshot:** one sentence naming the company size (revenue and net profit) and the year.
+**What the numbers show:** 3-5 bullets, each quoting one or two fields.
+**Caveats:** one bullet per `data_notes` entry; if there are none, one bullet saying the figures are
+from annual statements only.
+**Not covered:** one line naming what this analysis did not look at."""
+
+
+def build_fundamentals_user_prompt(ticker: str, facts: dict[str, Any], source: str) -> str:
+    return (
+        f"Ticker: {ticker}\nSource of the statements: {source}\n\n"
+        f"Computed facts:\n```json\n{json.dumps(facts, indent=2)}\n```"
+    )

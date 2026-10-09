@@ -441,9 +441,15 @@ RULE_WORDS = ("unusual", "atypical", "elevated", "narrowing", "widening", "rever
 _RULE_WORDS = re.compile(r"\b(" + "|".join(RULE_WORDS) + r")s?\b", re.IGNORECASE)
 
 
-def check_rule_words(text: str) -> list[str]:
+# Valuation verdicts: FinTray has no peer or history data to support them, and they read as advice.
+VALUATION_WORDS = ("undervalued", "overvalued", "cheap", "expensive", "bargain", "attractive")
+
+
+def check_rule_words(text: str, words: tuple[str, ...] = RULE_WORDS) -> list[str]:
+    rx = _RULE_WORDS if words is RULE_WORDS else re.compile(r"\b(" + "|".join(map(re.escape, words)) + r")s?\b",
+                                                             re.IGNORECASE)
     found = []
-    for m in _RULE_WORDS.finditer(text):
+    for m in rx.finditer(text):
         note = f"'{m.group(1).lower()}' (a judgement the data cannot support; the rules forbid it)"
         if note not in found:
             found.append(note)

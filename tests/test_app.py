@@ -58,9 +58,9 @@ def test_page_loads_with_examples_and_no_errors(app):
     app.run()
     assert not app.exception
     assert app.title[0].value == "FinTray"
-    assert [b.label for b in app.button] == ["Analyze", "How is RELIANCE.NS doing?", "What is RSI?",
-                                              "Is my portfolio diversified?"]
-    assert [t.label for t in app.tabs] == ["📈 Chart & signals", "📒 Journal", "💬 Ask AI"]
+    assert [b.label for b in app.button] == ["Analyze", "Load fundamentals", "How is RELIANCE.NS doing?",
+                                              "What is RSI?", "Is my portfolio diversified?"]
+    assert [t.label for t in app.tabs] == ["📈 Chart & signals", "🏦 Long-term", "📒 Journal", "💬 Ask AI"]
     assert any("cannot place orders" in c.value for c in app.caption)
 
 
@@ -177,3 +177,64 @@ def test_same_question_today_is_answered_from_memory(app, monkeypatch):
     next(t for t in app.toggle if t.label == "Reuse today's answers").set_value(False).run()
     app.chat_input[0].set_value("What is RSI?").run()
     assert len(calls) == 2 and not app.exception
+
+
+# ---- Long-term tab
+
+def fake_statements(ticker, file_bytes=None, file_name=None):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from test_fundamentals import statements
+    from fin_agent.data.fundamentals import FundamentalsError
+    if ticker.startswith("ZZZ"):
+        raise FundamentalsError(f"{ticker}: no financial statements from Yahoo.")
+    return statements(sector="Financial Services")
+
+
+class ValuationClient:
+    def complete(self, system, user, temperature=0.2, on_text=None):
+        text = "**Snapshot:** P/E is 25.0 <b>bold</b>, so the stock looks cheap."
+        if on_text:
+            on_text(text)
+        return LLMResult(text, "fake", 3, 4)
+
+
+@pytest.fixture
+def longterm(app, monkeypatch):
+    from fin_agent.pipelines import fundamentals as pipeline
+    monkeypatch.setattr(pipeline, "load_statements", fake_statements)
+    monkeypatch.setattr(factory, "client_from_env", lambda max_tokens=1200: ValuationClient())
+    return app
+
+
+def test_longterm_tab_shows_card_and_notes(longterm):
+    longterm.run()
+    longterm.text_input(key="lt_raw").set_value("abcbank")
+    button(longterm, "Load fundamentals").click().run()
+    assert not longterm.exception
+    table = longterm.dataframe[0].value
+    assert list(table.columns) == ["Measure", "Value", "What it means"]
+    values = dict(zip(table["Measure"], table["Value"]))
+    assert values["P/E"] == "25" and values["ROE"] == "not available" and values["Debt-to-equity"] == "not available"
+    warnings = " ".join(w.value for w in longterm.warning)
+    assert "ROE is not shown for banks" in warnings and "Debt-to-equity is not meaningful" in warnings
+    assert any("ABCBANK.NS fundamentals" in h.value for h in longterm.subheader)
+
+
+def test_longterm_ai_text_is_escaped_and_valuation_words_flagged(longterm):
+    longterm.run()
+    button(longterm, "Load fundamentals").click().run()
+    button(longterm, "Explain with AI").click().run()
+    assert not longterm.exception
+    shown = " ".join(m.value for m in longterm.markdown)
+    assert "looks cheap" in shown and "<b>" not in shown
+    assert "'cheap'" in shown and "Review before trusting" in shown
+    assert any("fundamentals-v1" in c.value for c in longterm.caption)
+
+
+def test_longterm_bad_symbol_shows_error(longterm):
+    longterm.run()
+    longterm.text_input(key="lt_raw").set_value("ZZZNOPE")
+    button(longterm, "Load fundamentals").click().run()
+    assert not longterm.exception
+    assert any("no financial statements" in e.value for e in longterm.error)

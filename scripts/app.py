@@ -1,4 +1,5 @@
-"""FinTray page: candlestick chart with rule-based signals and their backtest, plus an AI chat.
+"""FinTray page: candlestick chart with rule-based signals and their backtest, company fundamentals,
+a trade journal, plus an AI chat.
 
 Start it with:
     streamlit run scripts/app.py
@@ -24,7 +25,10 @@ from fin_agent.llm import factory
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from fin_agent.data.fundamentals import FundamentalsError, Statements
 from fin_agent.pipelines.ask import CACHEABLE_KINDS, answer, cache_key
+from fin_agent.pipelines.fundamentals import (SOURCE_LABELS, analysis_markdown, build_fundamentals_report,
+                                              load_statements)
 from fin_agent.pipelines.brief import safe_model_text
 import sqlite3
 
@@ -43,6 +47,11 @@ SIGNALS_CAVEAT = (
 @st.cache_data(ttl=900, show_spinner=False)
 def load_history(ticker: str) -> market_data.PriceHistory:
     return market_data.fetch_history(ticker, period="2y")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_fundamentals(ticker: str, file_bytes: bytes | None, file_name: str | None) -> Statements:
+    return load_statements(ticker, file_bytes, file_name)
 
 
 def normalise_ticker(raw: str) -> str:
@@ -335,12 +344,88 @@ with st.sidebar:
         st.error(f"Settings problem: {exc}")
     st.caption(DISCLAIMER)
 
+def longterm_tab() -> None:
+    st.caption("Company fundamentals for long-term investing, from annual statements. Every number is "
+               "computed in Python; the AI only explains them, and its text is checked.")
+    c1, c2 = st.columns([3, 1])
+    raw = c1.text_input("NSE symbol", value=st.session_state.get("lt_ticker", "HDFCBANK.NS"), key="lt_raw",
+                        help="Add .NS for NSE (e.g. ITC.NS). A bare symbol gets .NS.")
+    c2.write("")
+    clicked = c2.button("Load fundamentals", type="primary", width="stretch")
+    upload = st.file_uploader(
+        "Optional, more reliable: the company's screener.in Excel export", type=["xlsx"], key="lt_file",
+        help="On screener.in (free login), open the company page and click 'Export to Excel'. Without a "
+             "file, Yahoo's statements are used; they are less reliable for banks.")
+    if clicked:
+        st.session_state["lt_ticker"] = normalise_ticker(raw)
+    ticker = st.session_state.get("lt_ticker")
+    if not ticker:
+        st.info("Type an NSE symbol and press Load fundamentals.")
+        return
+
+    file_bytes, file_name = (upload.getvalue(), upload.name) if upload else (None, None)
+    try:
+        with st.spinner(f"Loading {ticker} statements…"):
+            statements = load_fundamentals(ticker, file_bytes, file_name)
+    except FundamentalsError as exc:
+        st.error(str(exc))
+        return
+    report = build_fundamentals_report(statements)
+    facts = report.facts
+
+    st.subheader(f"{ticker} fundamentals")
+    st.caption(f"Source: {SOURCE_LABELS.get(report.source, report.source)} · financial year ending "
+               f"{facts['fiscal_year_end'] or '?'} · price ₹{facts['price'] or '?'} · sector {facts['sector'] or '?'}")
+    if upload:
+        st.info(f"Statements from your file are for **{statements_company(file_bytes)}**. "
+                f"Check this is the company you typed ({ticker}).")
+    st.dataframe(pd.DataFrame(report.rows), hide_index=True, width="stretch")
+    for note in facts["data_notes"]:
+        st.warning(note)
+
+    ai_key = ("lt_ai", ticker, report.source, file_name)
+    if st.button("Explain with AI"):
+        live = st.empty()
+
+        def show_partial(text: str) -> None:
+            live.markdown(safe_model_text(text) + "\n\n_… writing. Checks run when it finishes._")
+
+        with st.spinner("Thinking… the first words usually appear within a few seconds."):
+            try:
+                client = factory.client_from_env(max_tokens=1500)
+            except (ValueError, RuntimeError) as exc:
+                st.session_state[ai_key] = (f"Can't start the model: {exc}", None)
+            else:
+                done = build_fundamentals_report(statements, client=client, on_text=show_partial)
+                st.session_state[ai_key] = (analysis_markdown(done), done.footer)
+        live.empty()
+    if ai_key in st.session_state:
+        md, footer = st.session_state[ai_key]
+        st.markdown(md)                       # model text is pre-escaped; raw HTML stays disabled
+        if footer:
+            st.caption(footer)
+    st.caption("Facts, not advice: FinTray does not say whether a stock is cheap or a good buy. "
+               "The decision is yours.")
+
+
+def statements_company(file_bytes: bytes) -> str:
+    from fin_agent.data.screener import read_screener
+    try:
+        return read_screener(file_bytes).company or "an unnamed company"
+    except FundamentalsError:
+        return "an unreadable file"
+
+
 # ---------------------------------------------------------------- page
 st.title(APP_NAME)
-tab_chart, tab_journal, tab_chat = st.tabs(["📈 Chart & signals", "📒 Journal", "💬 Ask AI"])
+tab_chart, tab_long, tab_journal, tab_chat = st.tabs(["📈 Chart & signals", "🏦 Long-term", "📒 Journal",
+                                                     "💬 Ask AI"])
 
 with tab_chart:
     chart_tab()
+
+with tab_long:
+    longterm_tab()
 
 with tab_journal:
     journal_tab()

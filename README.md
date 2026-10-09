@@ -66,7 +66,7 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 374 tests, no network needed
+pytest                      # 387 tests, no network needed
 ```
 
 ## The page
@@ -83,6 +83,7 @@ streamlit run scripts/app.py        # opens http://localhost:8501
 `.streamlit/config.toml` keeps the page private to this computer (`address = "localhost"`) and turns off Streamlit's usage statistics. Start it from the project folder so the file is picked up.
 
 **📈 Chart & signals** (swing trading, daily candles):
+- **Stock summary** at the top: the minimum to buy (1 share plus estimated costs), your own journal record for the stock, and a measured record per style: win rate, loss rate, average profit when it won, average loss when it lost, and holding time for swing (FinTray's rules), and for holding 1 week, 1 month, 3 months, 1, 3 and 5 years ("bought on any past day, sold N later", from all the price history Yahoo has). Thin samples are flagged; intraday waits for minute data (Upstox step). Measured past, not a forecast.
 - Candlestick chart with 20/50/200-day averages, volume and RSI.
 - Five buy and five sell conditions, each shown as met/not met with the actual values.
 - A backtest of those exact rules on the stock's last ~2 years: trades, win rate, total return compared with just holding, worst drop. Settings (thresholds, max holding days, costs) are adjustable.

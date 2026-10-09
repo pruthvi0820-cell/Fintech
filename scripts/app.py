@@ -18,6 +18,7 @@ import streamlit as st
 from fin_agent.analysis.backtest import DEFAULT_COST_PER_SIDE, backtest
 from fin_agent.analysis.risk import DEFAULT_RISK_PCT, PlanError, plan_trade
 from fin_agent.analysis.signals import latest_signals
+from fin_agent.analysis.summary import minimum_to_buy, stock_records, your_record
 from fin_agent.charts import candle_chart
 from fin_agent.config import Settings
 from fin_agent.data import market_data
@@ -47,6 +48,15 @@ SIGNALS_CAVEAT = (
 @st.cache_data(ttl=900, show_spinner=False)
 def load_history(ticker: str) -> market_data.PriceHistory:
     return market_data.fetch_history(ticker, period="2y")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_long_closes(ticker: str) -> pd.Series | None:
+    """All the daily closes Yahoo has (often 20+ years), for long holding-period records."""
+    try:
+        return market_data.fetch_history(ticker, period="max").bars["Close"]
+    except market_data.MarketDataError:
+        return None
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -141,6 +151,36 @@ def log_decision_section(ticker: str, sig: dict, plan, last_close: float, cost_p
         st.error(f"Could not save to the journal: {exc}")
     else:
         st.success(f"Saved as journal entry #{entry_id}.")
+
+
+def summary_section(ticker: str, last_close: float, result, cost_per_side: float) -> None:
+    """Minimum to buy, measured record per trading style, and the user's own record for this stock."""
+    st.markdown("#### Stock summary")
+    with st.spinner("Measuring long-term records…"):
+        long_close = load_long_closes(ticker)
+    buy = minimum_to_buy(last_close, cost_per_side)
+    journal = get_journal()
+    mine = your_record(journal.entries() if journal else pd.DataFrame(), ticker)
+    k = st.columns(3)
+    k[0].metric("Minimum to buy", f"₹{buy['total']:,.2f}",
+                help=f"1 share at ₹{buy['price']:,.2f} plus about ₹{buy['costs']:,.2f} estimated costs. "
+                     "Delivery buying on NSE has no minimum lot.")
+    k[1].metric("Your trades on this stock", f"{mine['closed']} closed · {mine['open']} open",
+                help="From your journal.")
+    k[2].metric("Your win rate here", "–" if mine["win_rate"] is None else
+                f"{mine['win_rate'] * 100:.0f}% (₹{mine['pnl']:,.0f})")
+
+    pct = lambda x: "–" if x is None else f"{x * 100:+.1f}%"   # noqa: E731
+    rows = [{
+        "Style": r.style, "Win rate": "–" if r.win_rate is None else f"{r.win_rate * 100:.0f}%",
+        "Loss rate": "–" if r.loss_rate is None else f"{r.loss_rate * 100:.0f}%",
+        "Avg profit when it won": pct(r.avg_win), "Avg loss when it lost": pct(r.avg_loss),
+        "Holding time": r.holding, "Based on": r.based_on, "Note": r.note or "",
+    } for r in stock_records(result, long_close, cost_per_side)]
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    st.caption("Measured from past prices after estimated costs (adjusted for splits and dividends), not a "
+               "forecast. 'Hold 1 year' means: bought on any past day and sold one year later. Future potential "
+               "(deals, demand, government decisions) comes in a later step, with sources.")
 
 
 def journal_tab() -> None:
@@ -246,6 +286,7 @@ def chart_tab() -> None:
     result = backtest(bars, entry_score=entry, exit_score=exit_, max_hold=hold, cost_per_side=cost / 100)
 
     st.subheader(f"{hist.ticker} · {hist.freshness()} · {hist.currency or ''}")
+    summary_section(hist.ticker, float(bars["Close"].iloc[-1]), result, cost / 100)
     if not sig["reliable"]:
         st.warning(sig["reason"])
     if sig["buy_score"] is not None:

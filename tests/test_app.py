@@ -238,3 +238,17 @@ def test_longterm_bad_symbol_shows_error(longterm):
     button(longterm, "Load fundamentals").click().run()
     assert not longterm.exception
     assert any("no financial statements" in e.value for e in longterm.error)
+
+
+def test_chart_tab_shows_stock_summary_for_every_style(app):
+    app.run()
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    assert any(m.value == "#### Stock summary" for m in app.markdown)
+    labels = {m.label: m.value for m in app.metric}
+    assert labels["Minimum to buy"].startswith("₹") and labels["Your trades on this stock"] == "0 closed · 0 open"
+    summary = next(d.value for d in app.dataframe if "Style" in d.value.columns)
+    assert list(summary["Style"]) == ["Intraday (same day)", "Swing (FinTray's rules)", "Hold 1 week", "Hold 1 month",
+                                      "Hold 3 months", "Hold 1 year", "Hold 3 years", "Hold 5 years"]
+    assert "Upstox" in summary["Note"].iloc[0]
+    assert summary["Win rate"].iloc[2].endswith("%")                       # 1-week record measured from 2y of data

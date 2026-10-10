@@ -59,10 +59,10 @@ def test_page_loads_with_examples_and_no_errors(app):
     app.run()
     assert not app.exception
     assert app.title[0].value == "FinTray"
-    assert [b.label for b in app.button] == ["Analyze", "Load fundamentals", "How is RELIANCE.NS doing?",
+    assert [b.label for b in app.button] == ["Analyze", "Load fundamentals", "Scan news now", "How is RELIANCE.NS doing?",
                                               "What is RSI?", "Is my portfolio diversified?"]
-    assert [t.label for t in app.tabs] == ["📈 Chart & signals", "🏦 Long-term", "🧪 Paper trading", "📒 Journal",
-                                           "💬 Ask AI"]
+    assert [t.label for t in app.tabs] == ["📈 Chart & signals", "🏦 Long-term", "🔭 Events", "🧪 Paper trading",
+                                           "📒 Journal", "💬 Ask AI"]
     assert any("cannot place orders" in c.value for c in app.caption)
 
 
@@ -309,3 +309,29 @@ def test_paper_trade_from_the_chart_tab_shows_in_the_paper_tab(app):
     assert list(open_trades["Stock"]) == ["RELIANCE.NS"]       # fake prices end before today: still open
     labels = {m.label: m.value for m in app.metric}
     assert labels["Closed trades"] == "0" and labels["Virtual account"].startswith("₹")
+
+
+def test_events_tab_scans_only_when_asked(app, monkeypatch):
+    from datetime import datetime, timezone
+
+    from fin_agent.data import news as news_mod
+    from fin_agent.data.news import NewsItem, SourceStatus
+    calls = []
+
+    def fake_collect(sources, hours=48, **kw):
+        calls.append(hours)
+        return ([NewsItem("PIB", "government", "Defence ministry clears <b>missile</b> purchase with BDL",
+                          "https://pib.example/1", datetime.now(timezone.utc))],
+                [SourceStatus("PIB", ok=True, entries=1, kept=1), SourceStatus("Mint", ok=False, error="x")])
+
+    monkeypatch.setattr(news_mod, "collect_news", fake_collect)
+    app.run()
+    assert not calls and any("Press **Scan news now**" in i.value for i in app.info)
+    button(app, "Scan news now").click().run()
+    assert not app.exception and calls == [72]
+    shown = " ".join(m.value for m in app.markdown)
+    assert "🏛 **Official**" in shown and "&lt;b&gt;missile&lt;/b&gt;" in shown and "<b>" not in shown
+    table = next(d.value for d in app.dataframe if "Linked because" in d.value.columns)
+    assert table["Linked because"].iloc[0] == "named in the news" and "BDL.NS" in table["Company"].iloc[0]
+    captions = " ".join(c.value for c in app.caption)
+    assert "Feeds that failed this time: Mint." in captions and "starter company list" in captions

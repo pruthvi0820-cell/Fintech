@@ -66,7 +66,7 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 470 tests, no network needed
+pytest                      # 497 tests, no network needed
 ```
 
 ## Trying it without a broker account
@@ -102,6 +102,12 @@ streamlit run scripts/app.py        # opens http://localhost:8501
 
 - **🧭 Portfolio health:** with your holdings CSV uploaded (sidebar): your mix by stock and by sector (sectors from Yahoo), your own target % per stock (saved locally in `journal/targets.json`), and plain flags: a holding 5+ points from your target (with the rupee gap), one sector above 40%, single-holding and top-three concentration, unknown sectors. Targets are yours; FinTray only measures the gap.
 - **⏳ Holding tracker & tax timing:** buy dates from your FinTray journal or a broker tradebook CSV (FIFO). For every open lot: days held, the date it becomes long-term (held more than 12 months), the gain and tax rate if sold today. For the financial year: realised short- and long-term gains (with the legal set-off of losses), the ₹1.25 lakh LTCG exemption used and left, and an estimated tax with 4% cess. Legal planning facts: unused exemption (gain harvesting), lots at a loss (tax-loss harvesting), lots turning long-term within 60 days. Rules live in `data/tax_rules.py` with their start dates and sources; not modelled: surcharge, 87A rebate, pre-2018 grandfathering, intraday and F&O. Estimates only: confirm with a CA.
+
+**🔭 Events** (press **Scan news now**; nothing is fetched until you do):
+- News that matches a theme (semiconductors, defence, railways, EVs, renewables, interest rates, IT services, crude oil, pharma, metals) or names a mapped company. Official sources (RBI, SEBI, government, central banks) come first with a 🏛 badge.
+- For each event: the linked companies and why ("named in the news", or the theme's reason), and how each stock moved since the news next to the Nifty over the same days.
+- Every event is saved (`journal/events.sqlite3`), so later events of a theme show how linked stocks moved over the 20 sessions after earlier ones, net of the Nifty, flagged as thin evidence until there are at least 5 events.
+- The company map (`data/themes.py`, list it with `python scripts/themes.py`, check symbols with `--check`) is a starter list until each theme is checked against company filings. A link is a reason to look, not proof.
 
 **🧪 Paper trading** (practise before real money; no broker account needed):
 - In the Chart tab, under the trade plan, **Open paper trade** buys that plan with virtual money (default ₹1,00,000) at the latest (delayed) price plus costs. Virtual cash can't go negative; one open trade per stock.

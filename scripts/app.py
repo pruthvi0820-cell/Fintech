@@ -27,7 +27,10 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fin_agent.data.fundamentals import FundamentalsError, Statements
+from fin_agent.analysis import events as events_mod
 from fin_agent.data import tax_rules
+from fin_agent.data.news import collect_news
+from fin_agent.data.news_sources import get_sources
 from fin_agent.data.fundamentals import fetch_quote
 from fin_agent.knowledge import notes as notes_mod
 from fin_agent.portfolio import paper as paper_mod
@@ -38,7 +41,7 @@ from fin_agent.portfolio.lots import (build_lots, fy_summary, harvest_ideas, lot
 from fin_agent.pipelines.ask import CACHEABLE_KINDS, answer, cache_key
 from fin_agent.pipelines.fundamentals import (SOURCE_LABELS, analysis_markdown, build_fundamentals_report,
                                               load_statements)
-from fin_agent.pipelines.brief import safe_model_text
+from fin_agent.pipelines.brief import esc, md_link, safe_model_text
 import sqlite3
 
 from fin_agent.portfolio.holdings import PortfolioError, parse_holdings_csv, portfolio_snapshot
@@ -264,6 +267,85 @@ def paper_tab() -> None:
             book.reset(new_cash)
             st.session_state["paper_msg"] = f"Paper account reset to ₹{new_cash:,.0f}."
             st.rerun()
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def recent_news(hours: int):
+    return collect_news(get_sources(), hours=hours, max_items=300)
+
+
+def safe_bars(ticker: str) -> pd.DataFrame | None:
+    try:
+        return load_history(ticker).bars
+    except market_data.MarketDataError:
+        return None
+
+
+def events_tab() -> None:
+    st.caption("News that touches a theme (semiconductors, defence, rates…) or names a company, with the listed "
+               "companies it can affect and how their prices actually moved since. A theme link is a reason to look, "
+               "not proof: the company map is a starter list until checked. Measured, not predicted.")
+    c1, c2 = st.columns([1, 3])
+    hours = c1.selectbox("News from the last", [24, 72, 168], index=1, format_func=lambda h: f"{h // 24} day(s)")
+    c2.write("")
+    if c2.button("Scan news now"):
+        recent_news.clear()
+        st.session_state["events_on"] = True
+    if not st.session_state.get("events_on"):
+        # Streamlit runs every tab on every page load: fetching feeds and prices here unasked would
+        # slow the whole app, so the scan starts only when asked.
+        st.info("Press **Scan news now** to read the feeds and find events.")
+        return
+    with st.spinner("Reading the news feeds…"):
+        items, statuses = recent_news(hours)
+    failed = [s.source for s in statuses if not s.ok]
+    if failed:
+        st.caption(f"Feeds that failed this time: {', '.join(failed)}.")
+    found = events_mod.detect_events(items)
+    if not found:
+        st.info(f"No news in the last {hours // 24} day(s) matched a theme or a mapped company.")
+        return
+    try:
+        store = events_mod.EventStore(events_mod.default_path())
+        store.save(found)
+    except (OSError, sqlite3.Error) as exc:
+        store = None
+        st.warning(f"Couldn't save events for the history record: {exc}")
+    nifty = safe_bars("^NSEI")
+    # A slider needs two different ends: with a single event there is nothing to choose.
+    shown = st.slider("Events to show", 1, min(30, len(found)), min(8, len(found))) if len(found) > 1 else 1
+    st.caption(f"{len(found)} event(s) found in {len(items)} news items.")
+    pct = lambda x: "–" if x is None else f"{x * 100:+.1f}%"   # noqa: E731
+    for ev in found[:shown]:
+        with st.container(border=True):
+            when = ev.day.isoformat() if ev.day else "undated"
+            st.markdown(f"{'🏛 **Official** · ' if ev.official else ''}{esc(ev.item.source)} · {when}")
+            st.markdown(f"**{md_link(ev.item.title, ev.item.link)}**")
+            if ev.themes:
+                st.caption("Themes: " + "; ".join(f"{t.name} (matched: {', '.join(k)})" for t, k in ev.themes))
+            rows = []
+            for lc in ev.companies:
+                r = events_mod.reaction(safe_bars(lc.company.ticker), nifty, ev.day) if ev.day else {}
+                rows.append({"Company": f"{lc.company.name} ({lc.company.ticker})",
+                             "Linked because": "named in the news" if lc.named else f"{lc.theme}: {lc.company.why}",
+                             "Since the news": pct(r.get("stock")), "Nifty, same days": pct(r.get("market")),
+                             "Stock vs Nifty": pct(r.get("relative"))})
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+            for theme, _ in ev.themes:
+                if theme.verified is None:
+                    st.caption(f"⚠️ {theme.name}: starter company list, not yet checked against company filings.")
+                if store is not None and ev.day:
+                    past = store.past(theme.name, ev.day)
+                    rec = events_mod.theme_record(past, {lc.company.ticker: safe_bars(lc.company.ticker)
+                                                         for lc in ev.companies}, nifty)
+                    if rec["samples"]:
+                        st.caption(f"After {rec['events']} earlier saved {theme.name} event(s), linked stocks moved "
+                                   f"{pct(rec['avg_relative'])} vs the Nifty on average over {rec['days']} sessions "
+                                   f"({rec['share_positive'] * 100:.0f}% beat it)"
+                                   + (" — thin evidence: too few events yet." if rec["thin"] else "."))
+                    else:
+                        st.caption(f"No earlier {theme.name} events saved yet; FinTray builds this record as it "
+                                   "keeps scanning.")
 
 
 def get_notes() -> notes_mod.NoteStore | None:
@@ -723,8 +805,8 @@ def statements_company(file_bytes: bytes) -> str:
 
 # ---------------------------------------------------------------- page
 st.title(APP_NAME)
-tab_chart, tab_long, tab_paper, tab_journal, tab_chat = st.tabs(
-    ["📈 Chart & signals", "🏦 Long-term", "🧪 Paper trading", "📒 Journal", "💬 Ask AI"])
+tab_chart, tab_long, tab_events, tab_paper, tab_journal, tab_chat = st.tabs(
+    ["📈 Chart & signals", "🏦 Long-term", "🔭 Events", "🧪 Paper trading", "📒 Journal", "💬 Ask AI"])
 
 with tab_chart:
     chart_tab()
@@ -733,6 +815,9 @@ with tab_long:
     longterm_tab()
     portfolio_health_section(portfolio)
     tax_timing_section()
+
+with tab_events:
+    events_tab()
 
 with tab_paper:
     paper_tab()

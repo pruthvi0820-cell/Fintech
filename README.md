@@ -141,6 +141,7 @@ python scripts/trend_report.py RELIANCE.NS TCS.NS --save
 python scripts/news_digest.py --hours 24 --save
 python scripts/news_digest.py --ticker RELIANCE.NS
 python scripts/news_digest.py --list-sources
+python scripts/news_digest.py --check-sources   # does each feed work from this computer?
 
 # The audit
 python scripts/audit.py      # writes reports/audit_*.md; tick wrong/vague per sentence

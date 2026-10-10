@@ -92,3 +92,31 @@ def test_publisher_blocked_feeds_are_disabled_by_default():
     enabled = {s.name for s in get_sources()}
     assert "Moneycontrol Latest" not in enabled and "PIB" not in enabled
     assert {s.name for s in get_sources(include_disabled=True)} >= {"Moneycontrol Latest", "PIB"}
+
+
+def test_check_sources_reports_each_feed(monkeypatch, capsys):
+    import importlib.util
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from fin_agent.data import news as news_mod
+    from fin_agent.data.news import NewsItem, SourceStatus
+    from fin_agent.data.news_sources import SOURCES
+
+    def fake_collect(sources, **kw):
+        src = sources[0]
+        if src.name == "Bank of Japan":
+            return [], [SourceStatus(src.name, ok=False, error="ConnectionError: refused")]
+        item = NewsItem(src.name, src.category, "t", "https://x", datetime(2026, 10, 9, tzinfo=timezone.utc))
+        return [item], [SourceStatus(src.name, ok=True, entries=5, kept=1)]
+
+    monkeypatch.setattr(news_mod, "collect_news", fake_collect)
+    path = Path(__file__).resolve().parent.parent / "scripts" / "news_digest.py"
+    spec = importlib.util.spec_from_file_location("news_digest_script", path)
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    assert script.check_sources() == 0
+    out = capsys.readouterr().out
+    assert "[OK  ] off US Federal Reserve" in out and "5 items, newest 2026-10-09" in out
+    assert "[FAIL] off Bank of Japan" in out and "ConnectionError: refused" in out
+    assert f"{len(SOURCES) - 1} of {len(SOURCES)} sources work" in out

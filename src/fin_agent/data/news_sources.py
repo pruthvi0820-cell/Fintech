@@ -17,12 +17,13 @@ IST = ZoneInfo("Asia/Kolkata")
 class FeedSource:
     name: str
     url: str
-    category: str                       # "regulator" | "government" | "market"
+    category: str                       # "regulator" | "government" | "market" | "central bank"
     enabled: bool = True
     tz: ZoneInfo = IST                  # used when a feed's dates carry no timezone (RBI's don't)
     verified: str | None = None
     noise_patterns: tuple[str, ...] = ()
     notes: str = ""
+    region: str = "India"               # where the decisions come from; "India" or a country/bloc
 
     def is_noise(self, title: str) -> bool:
         return any(re.search(p, title, re.IGNORECASE) for p in self.noise_patterns)
@@ -59,6 +60,26 @@ SOURCES: list[FeedSource] = [
     FeedSource(
         "Mint Markets", "https://www.livemint.com/rss/markets", "market", verified="2026-10-07",
         notes="High volume; includes broker stock tips.",
+    ),
+    # Global central banks: their decisions move currencies, foreign flows and Indian markets.
+    # Added 2026-10-10 from each bank's published RSS address; not yet seen working from FinTray, so
+    # off until `python scripts/news_digest.py --check-sources` shows them working (then set verified).
+    FeedSource(
+        "US Federal Reserve", "https://www.federalreserve.gov/feeds/press_all.xml", "central bank", enabled=False,
+        region="United States", tz=ZoneInfo("America/New_York"),
+        notes="All press releases: rate decisions, statements, enforcement.",
+    ),
+    FeedSource(
+        "European Central Bank", "https://www.ecb.europa.eu/rss/press.html", "central bank", enabled=False,
+        region="Euro area", tz=ZoneInfo("Europe/Berlin"), notes="Press releases incl. monetary policy decisions.",
+    ),
+    FeedSource(
+        "Bank of England", "https://www.bankofengland.co.uk/rss/news", "central bank", enabled=False,
+        region="United Kingdom", tz=ZoneInfo("Europe/London"), notes="News incl. Bank Rate decisions.",
+    ),
+    FeedSource(
+        "Bank of Japan", "https://www.boj.or.jp/en/rss/whatsnew.xml", "central bank", enabled=False,
+        region="Japan", tz=ZoneInfo("Asia/Tokyo"), notes="What's new (English).",
     ),
     FeedSource(
         "Moneycontrol Latest", "https://www.moneycontrol.com/rss/latestnews.xml", "market",

@@ -27,7 +27,11 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fin_agent.data.fundamentals import FundamentalsError, Statements
+from fin_agent.data import tax_rules
+from fin_agent.data.fundamentals import fetch_quote
 from fin_agent.knowledge import notes as notes_mod
+from fin_agent.portfolio.lots import (build_lots, fy_summary, harvest_ideas, lot_rows, parse_tradebook_csv,
+                                      trades_from_journal)
 from fin_agent.pipelines.ask import CACHEABLE_KINDS, answer, cache_key
 from fin_agent.pipelines.fundamentals import (SOURCE_LABELS, analysis_markdown, build_fundamentals_report,
                                               load_statements)
@@ -476,6 +480,75 @@ def longterm_tab() -> None:
                "The decision is yours.")
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def live_price(symbol: str) -> float | None:
+    return fetch_quote(f"{symbol}.NS")[0]
+
+
+def tax_timing_section() -> None:
+    """Every open buy lot: days held, when it turns long-term, the gain and tax rate if sold today."""
+    st.divider()
+    st.subheader("⏳ Holding tracker & tax timing")
+    st.caption("Needs buy dates: your FinTray journal, or your broker's tradebook export (all buys and sells "
+               "with dates; not the holdings list). Sells are matched to the oldest buys first (FIFO).")
+    source = st.radio("Buy dates from", ["My FinTray journal", "A tradebook CSV from my broker"], horizontal=True,
+                      key="tax_source")
+    try:
+        if source == "My FinTray journal":
+            journal = get_journal()
+            trades = trades_from_journal(journal.entries() if journal else pd.DataFrame())
+        else:
+            upload = st.file_uploader("Tradebook CSV", type=["csv"], key="tax_tradebook",
+                                      help="Zerodha: Console → Reports → Tradebook. Upstox/Groww: the trade "
+                                           "history or tradebook report, as CSV.")
+            trades = parse_tradebook_csv(upload.getvalue()) if upload else []
+    except PortfolioError as exc:
+        st.error(str(exc))
+        return
+    if not trades:
+        st.info("No buys found yet. Log a purchase in the Chart tab's journal, or upload a tradebook.")
+        return
+
+    book = build_lots(trades)
+    for problem in book.problems:
+        st.warning(problem)
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    with st.spinner("Getting current prices…"):
+        prices = {s: live_price(s) for s in sorted({lot.symbol for lot in book.open_lots})}
+    rows = lot_rows(book, prices, today)
+    summary = fy_summary(book, today)
+    rule = summary["rule"]
+
+    k = st.columns(4)
+    k[0].metric(f"Realised gains {summary['financial_year']}",
+                f"₹{summary['short_term_gain'] + summary['long_term_gain']:,.0f}",
+                help=f"Short-term ₹{summary['short_term_gain']:,.0f} · long-term ₹{summary['long_term_gain']:,.0f}")
+    k[1].metric("LTCG exemption left", f"₹{summary['exemption_left']:,.0f}",
+                help=f"Of ₹{summary['ltcg_exemption']:,.0f} per financial year.")
+    k[2].metric("Estimated tax so far", f"₹{summary['estimated_tax']:,.0f}",
+                help="On this year's realised gains, after set-off and the exemption, plus 4% cess.")
+    k[3].metric("Open lots", len(rows))
+
+    if rows:
+        st.dataframe(pd.DataFrame([{
+            "Stock": r["symbol"], "Bought": r["bought"].isoformat(), "Shares": r["shares"],
+            "Buy price": r["buy_price"], "Price now": "–" if r["price"] is None else round(r["price"], 2),
+            "Days held": r["days_held"],
+            "Long-term from": r["long_term_from"].isoformat(),
+            "Days to long-term": "already" if r["long_term_now"] else r["days_to_long_term"],
+            "Gain if sold today": "–" if r["gain_if_sold"] is None else f"₹{r['gain_if_sold']:,.0f}",
+            "Tax rate if sold today": f"{r['rate_if_sold'] * 100:.1f}%",
+            "Note": r["note"],
+        } for r in rows]), hide_index=True, width="stretch")
+    for idea in harvest_ideas(rows, summary):
+        st.info(idea)
+    st.caption(f"Rules used: {rule.source} (in force from {rule.effective_from.isoformat()}). FinTray's list was "
+               f"last reviewed {tax_rules.LAST_REVIEWED}; later Budget changes are not included until added. "
+               "Not modelled: surcharge, the 87A rebate, grandfathering for shares bought before 1 Feb 2018, "
+               "intraday (speculative) trades, and F&O. Estimates for planning; confirm with a CA before filing. "
+               "Save rules you verify with /store tax: … in the Ask AI tab.")
+
+
 def statements_company(file_bytes: bytes) -> str:
     from fin_agent.data.screener import read_screener
     try:
@@ -494,6 +567,7 @@ with tab_chart:
 
 with tab_long:
     longterm_tab()
+    tax_timing_section()
 
 with tab_journal:
     journal_tab()

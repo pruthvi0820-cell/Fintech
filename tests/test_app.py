@@ -267,3 +267,23 @@ def test_notes_commands_in_the_chat_work_without_the_model(app, monkeypatch):
     assert "Saved as **note #1** [tax], source: Budget 2024." in shown and "**#1** [tax] LTCG is 12.5%" in shown
     assert "Ollama is not running" not in shown
     assert any("Your notes (1 saved)" in e.label for e in app.expander)
+
+
+def test_tax_timing_shows_journal_lots(app, monkeypatch, tmp_path):
+    from fin_agent.analysis.risk import plan_trade
+    from fin_agent.data import fundamentals as fdata
+    from fin_agent.portfolio.journal import Journal
+    monkeypatch.setattr(fdata, "fetch_quote", lambda t: (1500.0, "INR", "Technology"))
+    bars = fake_history("TCS.NS").bars
+    plan = plan_trade(bars, capital=100_000)
+    Journal(tmp_path / "journal.sqlite3").log_decision("TCS.NS", "bought", plan.entry, "test buy", {"buy_score": 4},
+                                                      plan=plan)
+    app.run()
+    assert not app.exception
+    assert any(h.value == "⏳ Holding tracker & tax timing" for h in app.subheader)
+    lots = next(d.value for d in app.dataframe if "Long-term from" in d.value.columns)
+    assert list(lots["Stock"]) == ["TCS"] and lots["Days to long-term"].iloc[0] in (365, 366)
+    assert lots["Tax rate if sold today"].iloc[0] == "20.0%"
+    labels = {m.label: m.value for m in app.metric}
+    assert labels["LTCG exemption left"] == "₹125,000" and labels["Open lots"] == "1"
+    assert any("Not modelled: surcharge" in c.value for c in app.caption)

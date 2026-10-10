@@ -66,7 +66,7 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 419 tests, no network needed
+pytest                      # 445 tests, no network needed
 ```
 
 ## The page
@@ -95,6 +95,8 @@ streamlit run scripts/app.py        # opens http://localhost:8501
 - **More reliable:** upload the company's **screener.in Excel export** (free login, "Export to Excel" on the company page). Without it, Yahoo's statements are used; Yahoo's bank equity was found wrong (HDFC Bank ROE 8.9% vs the reported 14.0%), so bank ROE is only shown from a Screener file.
 - Missing or distorted figures say why (a loss, a bank, a merger inside the growth window, an unknown share count) instead of guessing.
 - **Explain with AI** writes a short, checked explanation. It may not call a stock cheap, expensive or undervalued: there is no peer data to judge that.
+
+- **⏳ Holding tracker & tax timing:** buy dates from your FinTray journal or a broker tradebook CSV (FIFO). For every open lot: days held, the date it becomes long-term (held more than 12 months), the gain and tax rate if sold today. For the financial year: realised short- and long-term gains (with the legal set-off of losses), the ₹1.25 lakh LTCG exemption used and left, and an estimated tax with 4% cess. Legal planning facts: unused exemption (gain harvesting), lots at a loss (tax-loss harvesting), lots turning long-term within 60 days. Rules live in `data/tax_rules.py` with their start dates and sources; not modelled: surcharge, 87A rebate, pre-2018 grandfathering, intraday and F&O. Estimates only: confirm with a CA.
 
 **📒 Journal:**
 - Under the trade plan, "Log your decision" saves *I bought* (with your actual price and shares) or *I skipped*, with a required reason and the signals at that moment.

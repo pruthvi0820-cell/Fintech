@@ -61,7 +61,8 @@ def test_page_loads_with_examples_and_no_errors(app):
     assert app.title[0].value == "FinTray"
     assert [b.label for b in app.button] == ["Analyze", "Load fundamentals", "How is RELIANCE.NS doing?",
                                               "What is RSI?", "Is my portfolio diversified?"]
-    assert [t.label for t in app.tabs] == ["📈 Chart & signals", "🏦 Long-term", "📒 Journal", "💬 Ask AI"]
+    assert [t.label for t in app.tabs] == ["📈 Chart & signals", "🏦 Long-term", "🧪 Paper trading", "📒 Journal",
+                                           "💬 Ask AI"]
     assert any("cannot place orders" in c.value for c in app.caption)
 
 
@@ -294,3 +295,17 @@ def test_portfolio_health_asks_for_holdings_first(app):
     assert not app.exception
     assert any(h.value == "🧭 Portfolio health" for h in app.subheader)
     assert any("Upload your holdings CSV in the sidebar" in i.value for i in app.info)
+
+
+def test_paper_trade_from_the_chart_tab_shows_in_the_paper_tab(app):
+    app.run()
+    button(app, "Analyze").click().run()
+    next(t for t in app.text_input if t.label == "Why? (required)").set_value("practising the plan")
+    button(app, "Open paper trade").click().run()
+    assert not app.exception
+    assert any("Paper trade #1 opened" in s.value and "RELIANCE.NS" in s.value for s in app.success)
+    app.run()                                       # the Paper trading tab reads the saved trade
+    open_trades = next(d.value for d in app.dataframe if "Entry" in d.value.columns)
+    assert list(open_trades["Stock"]) == ["RELIANCE.NS"]       # fake prices end before today: still open
+    labels = {m.label: m.value for m in app.metric}
+    assert labels["Closed trades"] == "0" and labels["Virtual account"].startswith("₹")

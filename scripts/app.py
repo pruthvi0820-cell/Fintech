@@ -30,6 +30,7 @@ from fin_agent.data.fundamentals import FundamentalsError, Statements
 from fin_agent.data import tax_rules
 from fin_agent.data.fundamentals import fetch_quote
 from fin_agent.knowledge import notes as notes_mod
+from fin_agent.portfolio import paper as paper_mod
 from fin_agent.portfolio.allocation import (TargetError, drifts, health_flags, load_targets, save_targets,
                                             sector_mix)
 from fin_agent.portfolio.lots import (build_lots, fy_summary, harvest_ideas, lot_rows, parse_tradebook_csv,
@@ -158,6 +159,111 @@ def log_decision_section(ticker: str, sig: dict, plan, last_close: float, cost_p
         st.error(f"Could not save to the journal: {exc}")
     else:
         st.success(f"Saved as journal entry #{entry_id}.")
+
+
+def get_paper() -> paper_mod.PaperBook | None:
+    try:
+        return paper_mod.PaperBook(paper_mod.default_path())
+    except (OSError, sqlite3.Error) as exc:
+        st.error(f"Can't open the paper-trading file {paper_mod.default_path()}: {exc}")
+        return None
+
+
+def paper_trade_section(ticker: str, sig: dict, plan, last_close: float, cost_per_side: float) -> None:
+    """Under the trade plan: practise this exact plan with virtual money."""
+    if plan is None:
+        return
+    with st.form("paper_trade", clear_on_submit=True):
+        st.markdown("**🧪 Paper trade this plan** · virtual money, real (delayed) prices; see the Paper trading tab")
+        shares = st.number_input("Shares", min_value=1, value=max(1, int(plan.shares)), step=1)
+        reason = st.text_input("Why? (required)", max_chars=1000, placeholder="e.g. 4 of 5 conditions, practising")
+        submitted = st.form_submit_button("Open paper trade")
+    if not submitted:
+        return
+    book = get_paper()
+    if book is None:
+        return
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    try:
+        tid = book.open_trade(ticker, plan, last_close, sig, reason, today, shares=int(shares),
+                              cost_per_side=cost_per_side)
+    except paper_mod.PaperError as exc:
+        st.warning(str(exc))
+    else:
+        st.success(f"Paper trade #{tid} opened: {int(shares)} × {ticker} at ₹{last_close:,.2f}, stop ₹{plan.stop:,.2f}, "
+                   f"target ₹{plan.target:,.2f}.")
+
+
+def paper_tab() -> None:
+    st.caption("Practise with virtual money before risking real money. Exits are checked against each daily candle "
+               "after the buy, whenever this page opens; a gap below the stop exits at the open (a bigger loss), "
+               "and a day touching both stop and target counts as the stop. Nothing here can place real orders.")
+    book = get_paper()
+    if book is None:
+        return
+    open_tickers = sorted(set(book.trades().query("status == 'open'")["ticker"]))
+    bars = {}
+    for tk in open_tickers:
+        try:
+            bars[tk] = load_history(tk).bars
+        except market_data.MarketDataError as exc:
+            st.warning(f"{tk}: can't check stop/target now ({exc}).")
+    for msg in book.check_exits(bars):
+        st.success(msg)
+    prices = {tk: float(b["Close"].iloc[-1]) for tk, b in bars.items()}
+    s = book.stats(prices)
+    pct = lambda x: "–" if x is None else f"{x * 100:+.1f}%"   # noqa: E731
+    k = st.columns(5)
+    k[0].metric("Virtual account", f"₹{s['equity']:,.0f}", pct(s["return"]),
+                help=f"Started with ₹{s['start_cash']:,.0f}. Cash ₹{s['cash']:,.0f} + open trades at the latest price.")
+    k[1].metric("Closed trades", s["closed"], help=f"{s['open']} still open.")
+    k[2].metric("Win rate", "–" if s["win_rate"] is None else f"{s['win_rate'] * 100:.0f}%")
+    k[3].metric("Average R", "–" if s["avg_r"] is None else f"{s['avg_r']:+.2f}",
+                help="Result divided by the planned risk: +2 means you made twice what you risked.")
+    k[4].metric("Realised P&L", f"₹{s['total_pnl']:,.0f}")
+    w, a = s["with_signal"], s["against_signal"]
+    if w["trades"] or a["trades"]:
+        rate = lambda x: "–" if x is None else f"{x * 100:.0f}%"   # noqa: E731
+        st.caption(f"With the buy signal (4+ conditions): {w['trades']} trades, win rate {rate(w['win_rate'])} · "
+                   f"against it: {a['trades']} trades, win rate {rate(a['win_rate'])}.")
+
+    df = book.trades()
+    open_ = df[df["status"] == "open"]
+    if not open_.empty:
+        st.markdown("**Open paper trades**")
+        st.dataframe(pd.DataFrame([{
+            "#": r.id, "Stock": r.ticker, "Opened": r.opened_on, "Shares": r.shares, "Entry": r.entry,
+            "Stop": r.stop, "Target": r.target, "Now": prices.get(r.ticker, "–"),
+            "P&L now": "–" if r.ticker not in prices else f"₹{r.shares * (prices[r.ticker] - r.entry):,.0f}",
+        } for r in open_.itertuples()]), hide_index=True, width="stretch")
+        with st.form("paper_close"):
+            c1, c2 = st.columns(2)
+            pick = c1.selectbox("Close a trade early", [f"#{r.id} {r.ticker}" for r in open_.itertuples()])
+            price = c2.number_input("At price ₹", min_value=0.0, step=0.05)
+            if st.form_submit_button("Close paper trade"):
+                try:
+                    res = book.close_trade(int(pick.split()[0][1:]), price, "sold early",
+                                           datetime.now(ZoneInfo("Asia/Kolkata")).date())
+                except paper_mod.PaperError as exc:
+                    st.warning(str(exc))
+                else:
+                    st.session_state["paper_msg"] = f"Closed {pick}: P&L ₹{res['pnl']:,.2f}."
+                    st.rerun()
+    if msg := st.session_state.pop("paper_msg", None):
+        st.success(msg)
+    closed = df[df["status"] == "closed"]
+    if not closed.empty:
+        with st.expander(f"Closed paper trades ({len(closed)})"):
+            st.dataframe(closed[["id", "ticker", "opened_on", "closed_on", "shares", "entry", "exit_price",
+                                 "exit_reason", "pnl", "r_multiple", "reason"]], hide_index=True, width="stretch")
+    if df.empty:
+        st.info("No paper trades yet. In the Chart tab, make a trade plan and press 'Open paper trade'.")
+    with st.expander("Start again with new virtual money"):
+        new_cash = st.number_input("Starting money ₹", min_value=1000.0, value=float(s["start_cash"]), step=1000.0)
+        if st.checkbox("I understand this deletes every paper trade") and st.button("Reset paper account"):
+            book.reset(new_cash)
+            st.session_state["paper_msg"] = f"Paper account reset to ₹{new_cash:,.0f}."
+            st.rerun()
 
 
 def get_notes() -> notes_mod.NoteStore | None:
@@ -336,6 +442,7 @@ def chart_tab() -> None:
 
     plan = trade_plan_section(bars, cost / 100)
     log_decision_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
+    paper_trade_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
     try:
         fig = candle_chart(bars, f"{hist.ticker} — daily candles", result, plan)
     except ImportError:
@@ -616,8 +723,8 @@ def statements_company(file_bytes: bytes) -> str:
 
 # ---------------------------------------------------------------- page
 st.title(APP_NAME)
-tab_chart, tab_long, tab_journal, tab_chat = st.tabs(["📈 Chart & signals", "🏦 Long-term", "📒 Journal",
-                                                     "💬 Ask AI"])
+tab_chart, tab_long, tab_paper, tab_journal, tab_chat = st.tabs(
+    ["📈 Chart & signals", "🏦 Long-term", "🧪 Paper trading", "📒 Journal", "💬 Ask AI"])
 
 with tab_chart:
     chart_tab()
@@ -626,6 +733,9 @@ with tab_long:
     longterm_tab()
     portfolio_health_section(portfolio)
     tax_timing_section()
+
+with tab_paper:
+    paper_tab()
 
 with tab_journal:
     journal_tab()

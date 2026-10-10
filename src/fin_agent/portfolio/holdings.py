@@ -155,6 +155,7 @@ def portfolio_snapshot(p: Portfolio) -> dict[str, Any]:
         "value_basis": basis,
         "total_value": round(total, 2),
         "weights": {s: _r(w) for s, w in weights.items()},
+        "values": {s: round(values[s], 2) for s in weights},
         "largest_holding": {"symbol": ranked[0][0], "weight": _r(ranked[0][1])},
         "top3_weight": _r(sum(w for _, w in ranked[:3])),
         "effective_number_of_holdings": round(1 / hhi, 1),

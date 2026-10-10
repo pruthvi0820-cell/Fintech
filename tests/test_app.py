@@ -287,3 +287,10 @@ def test_tax_timing_shows_journal_lots(app, monkeypatch, tmp_path):
     labels = {m.label: m.value for m in app.metric}
     assert labels["LTCG exemption left"] == "₹125,000" and labels["Open lots"] == "1"
     assert any("Not modelled: surcharge" in c.value for c in app.caption)
+
+
+def test_portfolio_health_asks_for_holdings_first(app):
+    app.run()
+    assert not app.exception
+    assert any(h.value == "🧭 Portfolio health" for h in app.subheader)
+    assert any("Upload your holdings CSV in the sidebar" in i.value for i in app.info)

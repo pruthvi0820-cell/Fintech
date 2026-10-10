@@ -30,6 +30,8 @@ from fin_agent.data.fundamentals import FundamentalsError, Statements
 from fin_agent.data import tax_rules
 from fin_agent.data.fundamentals import fetch_quote
 from fin_agent.knowledge import notes as notes_mod
+from fin_agent.portfolio.allocation import (TargetError, drifts, health_flags, load_targets, save_targets,
+                                            sector_mix)
 from fin_agent.portfolio.lots import (build_lots, fy_summary, harvest_ideas, lot_rows, parse_tradebook_csv,
                                       trades_from_journal)
 from fin_agent.pipelines.ask import CACHEABLE_KINDS, answer, cache_key
@@ -481,8 +483,63 @@ def longterm_tab() -> None:
 
 
 @st.cache_data(ttl=900, show_spinner=False)
+def quote(symbol: str) -> tuple[float | None, str | None, str | None]:
+    return fetch_quote(f"{symbol}.NS")
+
+
 def live_price(symbol: str) -> float | None:
-    return fetch_quote(f"{symbol}.NS")[0]
+    return quote(symbol)[0]
+
+
+def portfolio_health_section(portfolio) -> None:
+    """The user's target mix against the real one, by stock and by sector."""
+    st.divider()
+    st.subheader("🧭 Portfolio health")
+    if portfolio is None:
+        st.info("Upload your holdings CSV in the sidebar to see your mix by stock and sector, and set targets.")
+        return
+    try:
+        snap = portfolio_snapshot(portfolio)
+    except PortfolioError as exc:
+        st.error(str(exc))
+        return
+    targets = load_targets()
+    with st.spinner("Looking up sectors…"):
+        sectors = {s: quote(s)[2] for s in snap["weights"]}
+    mix = sector_mix(snap, sectors)
+    total = snap["total_value"]
+
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        st.markdown("**By stock: your mix and your targets**")
+        table = pd.DataFrame([{
+            "Stock": d.symbol, "Sector": sectors.get(d.symbol) or "Unknown", "Value": round(d.value),
+            "Now %": round(d.actual * 100, 1),
+            "Target %": None if d.target is None else round(d.target * 100, 1),
+        } for d in drifts(snap, targets)])
+        edited = st.data_editor(table, hide_index=True, width="stretch", key="targets_editor",
+                                disabled=["Stock", "Sector", "Value", "Now %"],
+                                column_config={"Target %": st.column_config.NumberColumn(min_value=0, max_value=100,
+                                                                                         step=0.5)})
+        if st.button("Save my targets"):
+            try:
+                targets = save_targets({r["Stock"]: None if pd.isna(r["Target %"]) else r["Target %"] / 100
+                                        for r in edited.to_dict("records")})
+            except TargetError as exc:
+                st.error(str(exc))
+            else:
+                st.success(f"Saved {len(targets)} target(s).")
+    with c2:
+        st.markdown("**By sector**")
+        st.dataframe(pd.DataFrame([{"Sector": s, "Share %": round(w * 100, 1)} for s, w in mix.items()]),
+                     hide_index=True, width="stretch")
+        st.metric("Total value", f"₹{total:,.0f}",
+                  help="From the holdings file (" + ("latest price" if snap["value_basis"] == "last_price"
+                                                     else "average cost") + ").")
+    for flag in health_flags(snap, targets, mix):
+        st.warning(flag)
+    st.caption("Targets are yours; FinTray only measures the gap. Rupee amounts are the distance from your "
+               "target, not a suggestion to trade. Sectors come from Yahoo and can be missing.")
 
 
 def tax_timing_section() -> None:
@@ -567,6 +624,7 @@ with tab_chart:
 
 with tab_long:
     longterm_tab()
+    portfolio_health_section(portfolio)
     tax_timing_section()
 
 with tab_journal:

@@ -245,7 +245,7 @@ def harvest_ideas(rows: list[dict[str, Any]], summary: dict[str, Any]) -> list[s
     losses = [r for r in rows if (r["gain_if_sold"] or 0) < 0]
     if losses:
         total = sum(r["gain_if_sold"] for r in losses)
-        ideas.append(f"Lots currently at a loss: ₹{total:,.0f}. Realising a loss before 31 March can be set off "
+        ideas.append(f"Lots currently at a loss: ₹{abs(total):,.0f} in total. Realising a loss before 31 March can be set off "
                      "against this year's gains (tax-loss harvesting).")
     soon = [r for r in rows if not r["long_term_now"] and r["days_to_long_term"] <= 60 and (r["gain_if_sold"] or 0) > 0]
     for r in soon:

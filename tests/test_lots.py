@@ -112,7 +112,7 @@ def test_harvest_ideas_are_options_not_instructions():
     ideas = harvest_ideas(rows, fy_summary(book, TODAY))
     text = " ".join(ideas)
     assert "₹1,25,000" not in text and "₹125,000 of this year's LTCG exemption is unused" in text
-    assert "Lots currently at a loss: ₹-2,000" in text
+    assert "Lots currently at a loss: ₹2,000 in total" in text
     assert "C bought 2025-10-20 becomes long-term in 11 days (2026-10-21)" in text
     for word in ("should", "must", "buy now", "sell now"):
         assert word not in text.lower()

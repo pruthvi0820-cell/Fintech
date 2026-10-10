@@ -1,0 +1,7 @@
+symbol,trade_date,trade_type,quantity,price
+TCS,2025-03-10,buy,10,3200
+INFY,2025-11-20,buy,20,1500
+HDFCBANK,2024-06-03,buy,60,650
+HDFCBANK,2026-05-15,sell,20,760
+ITC,2026-02-02,buy,100,410
+RELIANCE,2024-12-16,buy,15,1250

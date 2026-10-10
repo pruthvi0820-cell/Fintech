@@ -69,6 +69,10 @@ cp .env.example .env        # add ANTHROPIC_API_KEY
 pytest                      # 470 tests, no network needed
 ```
 
+## Trying it without a broker account
+
+`samples/` has a made-up holdings file and tradebook (see `samples/README.md`) to test Portfolio health and the Holding tracker.
+
 ## The page
 
 **On Windows:** double-click `FinTray.bat` in the project folder (or a desktop shortcut to it). It opens FinTray in your browser; close its window to stop.

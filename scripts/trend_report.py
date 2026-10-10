@@ -20,6 +20,9 @@ REPORTS_DIR = Path(__file__).resolve().parent.parent / "reports"
 
 
 def main() -> int:
+    # Windows writes redirected output (`> file.txt`) in cp1252, which has no "₹": always use UTF-8.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser(description="Stock trend report with Claude commentary.")
     p.add_argument("tickers", nargs="+")
     p.add_argument("--period", default="2y", help="yfinance period (default 2y; 200-DMA needs >200 bars)")

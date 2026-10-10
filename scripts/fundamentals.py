@@ -3,7 +3,7 @@
 Usage:
     python scripts/fundamentals.py RELIANCE.NS
     python scripts/fundamentals.py RELIANCE.NS TCS.NS HDFCBANK.NS --rows
-    python scripts/fundamentals.py HDFCBANK.NS --screener "imports\HDFC Bank.xlsx" --rows
+    python scripts/fundamentals.py HDFCBANK.NS --screener "imports/HDFC Bank.xlsx" --rows
 
 --screener reads a screener.in "Export to Excel" file instead of Yahoo's statements (more reliable for
 Indian companies, banks especially). Yahoo is then only asked for the live price and the sector.
@@ -24,6 +24,9 @@ from fin_agent.data.screener import describe, read_screener, to_statements
 
 
 def main() -> int:
+    # Windows writes redirected output (`> file.txt`) in cp1252, which has no "₹": always use UTF-8.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser(description="Company fundamentals from annual statements.")
     p.add_argument("tickers", nargs="+")
     p.add_argument("--rows", action="store_true", help="also show which statement rows were found")

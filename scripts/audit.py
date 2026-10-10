@@ -47,6 +47,9 @@ def sentences(text: str) -> list[str]:
 
 
 def main() -> int:
+    # Windows writes redirected output (`> file.txt`) in cp1252, which has no "₹": always use UTF-8.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     tickers = sys.argv[1:] or DEFAULT
     client = client_from_env()
     stamp = datetime.now()

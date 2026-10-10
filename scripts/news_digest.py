@@ -39,6 +39,9 @@ def check_sources() -> int:
 
 
 def main() -> int:
+    # Windows writes redirected output (`> file.txt`) in cp1252, which has no "₹": always use UTF-8.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser(description="News digest with cited Claude briefing.")
     p.add_argument("--hours", type=float, default=48)
     p.add_argument("--source", action="append", help="limit to a source by name (repeatable)")

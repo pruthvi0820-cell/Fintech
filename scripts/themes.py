@@ -15,6 +15,9 @@ from fin_agent.data.themes import THEMES
 
 
 def main() -> int:
+    # Windows writes redirected output (`> file.txt`) in cp1252, which has no "₹": always use UTF-8.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser(description="FinTray theme map.")
     p.add_argument("--check", action="store_true", help="check each company symbol against Yahoo")
     args = p.parse_args()

@@ -2,6 +2,7 @@
 
 Usage:
     python scripts/alerts_runner.py --setup           # once: find your chat id after messaging your bot
+    python scripts/alerts_runner.py --test            # send a test message to check the phone connection
     python scripts/alerts_runner.py --once            # check now, send new alerts, stop
     python scripts/alerts_runner.py                   # every 15 minutes in market hours, until Ctrl+C
     python scripts/alerts_runner.py --every 30 --any-time
@@ -110,6 +111,7 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser(description="Send FinTray alerts to Telegram.")
     p.add_argument("--setup", action="store_true", help="show the chat id of whoever messaged your bot")
+    p.add_argument("--test", action="store_true", help="send a test message and stop")
     p.add_argument("--once", action="store_true", help="check once and stop")
     p.add_argument("--every", type=int, default=15, help="minutes between checks (default 15, minimum 5)")
     p.add_argument("--any-time", action="store_true", help="also check outside market hours")
@@ -127,6 +129,10 @@ def main() -> int:
             for cid, name in chats:
                 print(f"chat id {cid}  ({name})")
             print("Put yours in .env as:  FIN_AGENT_TELEGRAM_CHAT_ID=<the number above>")
+            return 0
+        if args.test:
+            telegram.send(token, chat_id, "✅ FinTray is connected. Alerts will arrive here. (Test message.)")
+            print("Test message sent. Check Telegram on your phone.")
             return 0
         if args.once:
             n = run_once(token, chat_id, scan_news=not args.no_news)

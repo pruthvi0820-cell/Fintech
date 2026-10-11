@@ -113,3 +113,13 @@ def test_old_sent_records_are_forgotten(runner, tmp_path):
     path = tmp_path / "s.json"
     path.write_text(json.dumps({"old": "2026-09-01T10:00:00+05:30", "new": "2026-10-11T10:00:00+05:30"}))
     assert list(runner.load_sent(path, datetime(2026, 10, 12, 10, 0, tzinfo=IST))) == ["new"]
+
+
+def test_test_flag_sends_a_message(runner, monkeypatch, capsys):
+    sent = []
+    monkeypatch.setattr(runner.telegram, "send", lambda token, chat, text: sent.append(text))
+    monkeypatch.setenv("FIN_AGENT_TELEGRAM_TOKEN", TOKEN)
+    monkeypatch.setenv("FIN_AGENT_TELEGRAM_CHAT_ID", "42")
+    monkeypatch.setattr("sys.argv", ["alerts_runner.py", "--test"])
+    assert runner.main() == 0 and "FinTray is connected" in sent[0]
+    assert "Test message sent" in capsys.readouterr().out

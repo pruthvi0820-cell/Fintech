@@ -144,6 +144,13 @@ class EventStore:
             db.executemany("INSERT OR IGNORE INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
             return db.total_changes - before
 
+    def recent(self, since: date) -> list[dict[str, Any]]:
+        """Saved events on or after `since`, newest first."""
+        with closing(sqlite3.connect(self.path)) as db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute("SELECT * FROM events WHERE day >= ? ORDER BY day DESC", (since.isoformat(),)).fetchall()
+        return [dict(r) for r in rows]
+
     def past(self, theme: str, before: date) -> list[dict[str, Any]]:
         with closing(sqlite3.connect(self.path)) as db:
             db.row_factory = sqlite3.Row

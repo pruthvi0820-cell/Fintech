@@ -1,0 +1,130 @@
+"""Alerts: one list of things worth a look, gathered from what FinTray already computes.
+
+Every alert is a fact with its source ("4 of 5 buy conditions met", "saved event names BDL",
+"paper stop hit on 2 Oct"), never an instruction. Inputs are passed in, so the rules are testable
+without prices or a network; the page supplies them from its caches.
+
+Sources of alerts:
+- watchlist / holdings: buy or sell conditions met (FinTray's rule score, same as the Chart tab)
+- saved events (Events tab) from the last few days that link to a watched or held stock
+- paper trades closed recently, or open ones within a few percent of their stop
+- lots that turn long-term soon (lower tax), from the holding tracker
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass
+from datetime import date, timedelta
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+BUY_ALERT = 4                # buy conditions met, out of 5 (the backtest's default entry)
+SELL_ALERT = 4
+NEAR_STOP = 0.02             # an open paper trade within 2% of its stop
+EVENT_DAYS = 3               # saved events this recent
+PAPER_CLOSED_DAYS = 7
+LONG_TERM_SOON_DAYS = 30
+ORDER = {"high": 0, "medium": 1, "info": 2}
+
+
+@dataclass(frozen=True)
+class Alert:
+    level: str               # "high" | "medium" | "info"
+    kind: str                # "signal" | "event" | "paper" | "tax"
+    ticker: str
+    text: str
+
+
+# ---------------------------------------------------------------- watchlist (local file)
+
+def watchlist_path() -> Path:
+    base = os.getenv("FIN_AGENT_JOURNAL_PATH")
+    folder = Path(base).parent if base else Path.cwd() / "journal"
+    return folder / "watchlist.json"
+
+
+def load_watchlist(path: Path | None = None) -> list[str]:
+    try:
+        raw = json.loads((path or watchlist_path()).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return sorted({str(t).strip().upper() for t in raw if str(t).strip()}) if isinstance(raw, list) else []
+
+
+def save_watchlist(tickers: list[str], path: Path | None = None) -> list[str]:
+    clean = sorted({t.strip().upper() for t in tickers if t and t.strip()})
+    path = path or watchlist_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(clean, indent=2), encoding="utf-8")
+    return clean
+
+
+# ---------------------------------------------------------------- rules
+
+def signal_alerts(signals: dict[str, dict[str, Any]], held: set[str]) -> list[Alert]:
+    """Buy conditions on any watched/held stock; sell conditions only matter for stocks you hold."""
+    out = []
+    for t, sig in sorted(signals.items()):
+        if not sig or not sig.get("reliable", True) or sig.get("buy_score") is None:
+            continue
+        n = sig.get("out_of", 5)
+        if sig["buy_score"] >= BUY_ALERT:
+            out.append(Alert("medium", "signal", t, f"{t} meets {sig['buy_score']} of {n} buy conditions "
+                                                   f"(as of {sig.get('as_of', '?')})."))
+        if t in held and sig.get("sell_score") is not None and sig["sell_score"] >= SELL_ALERT:
+            out.append(Alert("high", "signal", t, f"{t} (you hold it) meets {sig['sell_score']} of {n} sell "
+                                                 f"conditions (as of {sig.get('as_of', '?')})."))
+    return out
+
+
+def event_alerts(saved: list[dict[str, Any]], watched: set[str], today: date) -> list[Alert]:
+    """Saved events of the last EVENT_DAYS days that link to a watched or held stock."""
+    out = []
+    since = today - timedelta(days=EVENT_DAYS)
+    for ev in saved:
+        day = date.fromisoformat(ev["day"])
+        if day < since:
+            continue
+        for t in [x for x in ev["tickers"].split("|") if x in watched]:
+            badge = "official " if ev.get("official") else ""
+            out.append(Alert("high" if ev.get("official") else "medium", "event", t,
+                             f"{t}: {badge}news on {ev['day']} ({ev['source']}): {ev['title']}"))
+    return out
+
+
+def paper_alerts(trades: pd.DataFrame, prices: dict[str, float], today: date) -> list[Alert]:
+    out = []
+    if trades is None or trades.empty:
+        return out
+    since = today - timedelta(days=PAPER_CLOSED_DAYS)
+    for r in trades.itertuples():
+        if r.status == "closed" and r.closed_on and date.fromisoformat(r.closed_on) >= since:
+            out.append(Alert("info", "paper", r.ticker, f"Paper trade #{r.id} {r.ticker} closed on {r.closed_on}: "
+                                                        f"{r.exit_reason}, P&L ₹{r.pnl:,.2f}."))
+        elif r.status == "open" and r.ticker in prices:
+            price = prices[r.ticker]
+            if price > r.stop and (price - r.stop) / price <= NEAR_STOP:
+                out.append(Alert("medium", "paper", r.ticker,
+                                 f"Paper trade #{r.id} {r.ticker} is {(price - r.stop) / price * 100:.1f}% above its "
+                                 f"stop-loss ₹{r.stop:,.2f} (price ₹{price:,.2f})."))
+    return out
+
+
+def tax_alerts(lot_rows: list[dict[str, Any]]) -> list[Alert]:
+    out = []
+    for r in lot_rows:
+        if not r["long_term_now"] and r["days_to_long_term"] <= LONG_TERM_SOON_DAYS:
+            out.append(Alert("info", "tax", r["symbol"],
+                             f"{r['symbol']} bought {r['bought'].isoformat()} becomes long-term in "
+                             f"{r['days_to_long_term']} days ({r['long_term_from'].isoformat()})."))
+    return out
+
+
+def sort_alerts(alerts: list[Alert]) -> list[Alert]:
+    """Most important first, then by stock; exact duplicates removed."""
+    unique = list(dict.fromkeys(alerts))
+    return sorted(unique, key=lambda a: (ORDER.get(a.level, 9), a.ticker, a.kind))

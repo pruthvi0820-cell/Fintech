@@ -23,10 +23,11 @@ from fin_agent.charts import candle_chart
 from fin_agent.config import Settings
 from fin_agent.data import market_data
 from fin_agent.llm import factory
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fin_agent.data.fundamentals import FundamentalsError, Statements
+from fin_agent.analysis import alerts as alerts_mod
 from fin_agent.analysis import events as events_mod
 from fin_agent.data import tax_rules
 from fin_agent.data.news import collect_news
@@ -348,6 +349,60 @@ def events_tab() -> None:
                                    "keeps scanning.")
 
 
+def alerts_tab(portfolio) -> None:
+    st.caption("Things worth a look, gathered from the other tabs: buy/sell conditions on your watchlist and holdings, "
+               "recent saved events touching them, paper trades, and lots turning long-term. Facts, not instructions.")
+    watch = alerts_mod.load_watchlist()
+    with st.expander(f"⭐ Watchlist ({len(watch)})", expanded=not watch):
+        c1, c2 = st.columns([3, 1])
+        new = c1.text_input("Add a stock", placeholder="e.g. TCS.NS or a bare symbol like TCS", key="watch_add")
+        c2.write("")
+        if c2.button("Add to watchlist") and new.strip():
+            watch = alerts_mod.save_watchlist(watch + [normalise_ticker(new)])
+        if watch:
+            remove = st.multiselect("Remove", watch, key="watch_remove")
+            if remove and st.button("Remove selected"):
+                watch = alerts_mod.save_watchlist([w for w in watch if w not in remove])
+    held = {f"{s}.NS" for s in (portfolio.symbols if portfolio else [])}
+    tickers = sorted(set(watch) | held)
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+
+    signals = {}
+    with st.spinner("Checking your stocks…"):
+        for tk in tickers:
+            bars = safe_bars(tk)
+            if bars is not None:
+                signals[tk] = latest_signals(bars)
+    alerts = alerts_mod.signal_alerts(signals, held)
+    try:
+        saved = events_mod.EventStore(events_mod.default_path()).recent(today - timedelta(days=alerts_mod.EVENT_DAYS))
+        alerts += alerts_mod.event_alerts(saved, set(tickers), today)
+    except (OSError, sqlite3.Error):
+        pass
+    book = get_paper()
+    if book is not None:
+        trades = book.trades()
+        open_tk = sorted(set(trades.loc[trades["status"] == "open", "ticker"])) if not trades.empty else []
+        prices = {tk: float(b["Close"].iloc[-1]) for tk in open_tk if (b := safe_bars(tk)) is not None}
+        alerts += alerts_mod.paper_alerts(trades, prices, today)
+    journal = get_journal()
+    if journal is not None:
+        rows = lot_rows(build_lots(trades_from_journal(journal.entries())), {}, today)
+        alerts += alerts_mod.tax_alerts(rows)
+
+    alerts = alerts_mod.sort_alerts(alerts)
+    if not tickers:
+        st.info("Add stocks to your watchlist (above) or upload your holdings in the sidebar to get signal alerts.")
+    if not alerts:
+        st.success("Nothing needs your attention right now.")
+    icon = {"high": "🔴", "medium": "🟠", "info": "🔵"}
+    for al in alerts:
+        st.markdown(f"{icon.get(al.level, '•')} {esc(al.text)}")
+    st.caption(f"Checked {len(tickers)} stock(s) at {datetime.now(ZoneInfo('Asia/Kolkata')):%H:%M} IST. Prices are "
+               "delayed; events come from the Events tab's scans. Alerts appear when FinTray is open (no phone "
+               "notifications yet).")
+
+
 def get_notes() -> notes_mod.NoteStore | None:
     try:
         return notes_mod.NoteStore(notes_mod.default_path())
@@ -477,7 +532,7 @@ def journal_tab() -> None:
 
 def chart_tab() -> None:
     c1, c2 = st.columns([3, 1])
-    raw = c1.text_input("NSE symbol", value=st.session_state.get("chart_ticker", "RELIANCE.NS"),
+    raw = c1.text_input("NSE symbol", value=st.session_state.get("chart_ticker", "RELIANCE.NS"), key="chart_raw",
                         help="Add .NS for NSE (e.g. ITC.NS) or .BO for BSE. A bare symbol gets .NS.")
     c2.write("")
     clicked = c2.button("Analyze", type="primary", width="stretch")
@@ -805,8 +860,12 @@ def statements_company(file_bytes: bytes) -> str:
 
 # ---------------------------------------------------------------- page
 st.title(APP_NAME)
-tab_chart, tab_long, tab_events, tab_paper, tab_journal, tab_chat = st.tabs(
-    ["📈 Chart & signals", "🏦 Long-term", "🔭 Events", "🧪 Paper trading", "📒 Journal", "💬 Ask AI"])
+tab_alerts, tab_chart, tab_long, tab_events, tab_paper, tab_journal, tab_chat = st.tabs(
+    ["🔔 Alerts", "📈 Chart & signals", "🏦 Long-term", "🔭 Events", "🧪 Paper trading", "📒 Journal", "💬 Ask AI"])
+
+with tab_alerts:
+    alerts_tab(portfolio)
+
 
 with tab_chart:
     chart_tab()

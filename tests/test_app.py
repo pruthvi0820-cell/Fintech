@@ -59,10 +59,11 @@ def test_page_loads_with_examples_and_no_errors(app):
     app.run()
     assert not app.exception
     assert app.title[0].value == "FinTray"
-    assert [b.label for b in app.button] == ["Analyze", "Load fundamentals", "Scan news now", "How is RELIANCE.NS doing?",
+    assert [b.label for b in app.button] == ["Add to watchlist", "Analyze", "Load fundamentals", "Scan news now",
+                                              "How is RELIANCE.NS doing?",
                                               "What is RSI?", "Is my portfolio diversified?"]
-    assert [t.label for t in app.tabs] == ["📈 Chart & signals", "🏦 Long-term", "🔭 Events", "🧪 Paper trading",
-                                           "📒 Journal", "💬 Ask AI"]
+    assert [t.label for t in app.tabs] == ["🔔 Alerts", "📈 Chart & signals", "🏦 Long-term", "🔭 Events",
+                                           "🧪 Paper trading", "📒 Journal", "💬 Ask AI"]
     assert any("cannot place orders" in c.value for c in app.caption)
 
 
@@ -97,7 +98,7 @@ def test_chart_tab_shows_signals_chart_and_backtest(app):
 
 def test_chart_tab_bare_symbol_gets_ns_and_bad_symbol_shows_error(app):
     app.run()
-    app.text_input[0].set_value("zzz").run()
+    app.text_input(key="chart_raw").set_value("zzz").run()
     button(app, "Analyze").click().run()
     assert not app.exception
     assert any("ZZZ.NS: no data" in e.value for e in app.error)
@@ -335,3 +336,30 @@ def test_events_tab_scans_only_when_asked(app, monkeypatch):
     assert table["Linked because"].iloc[0] == "named in the news" and "BDL.NS" in table["Company"].iloc[0]
     captions = " ".join(c.value for c in app.caption)
     assert "Feeds that failed this time: Mint." in captions and "starter company list" in captions
+
+
+def test_alerts_tab_watchlist_and_tax_alert(app, monkeypatch, tmp_path):
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    from fin_agent.analysis.risk import plan_trade
+    from fin_agent.portfolio.journal import Journal
+    app.run()
+    assert any("Nothing needs your attention" in s.value for s in app.success) or app.markdown
+    app.text_input(key="watch_add").set_value("tcs").run()
+    button(app, "Add to watchlist").click().run()
+    assert not app.exception
+    assert json.loads((tmp_path / "watchlist.json").read_text()) == ["TCS.NS"]
+    assert any("Checked 1 stock(s)" in c.value for c in app.caption)
+
+    # a journal buy from ~11 months ago turns long-term within 30 days -> a tax alert
+    bars = fake_history("TCS.NS").bars
+    plan = plan_trade(bars, capital=100_000)
+    j = Journal(tmp_path / "journal.sqlite3")
+    entry_id = j.log_decision("INFY.NS", "bought", plan.entry, "old buy", {"buy_score": 4}, plan=plan)
+    old = (datetime.now(timezone.utc) - timedelta(days=350)).isoformat(timespec="seconds")
+    import sqlite3
+    with sqlite3.connect(tmp_path / "journal.sqlite3") as db:
+        db.execute("UPDATE entries SET created_at = ? WHERE id = ?", (old, entry_id))
+    app.run()
+    assert any("INFY bought" in m.value and "becomes long-term in" in m.value for m in app.markdown)

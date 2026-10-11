@@ -100,7 +100,7 @@ def build_trend_user_prompt(ticker: str, currency: str | None, snapshot: dict[st
 
 # ---------------------------------------------------------------- news digest
 
-NEWS_PROMPT_VERSION = "news-v1"
+NEWS_PROMPT_VERSION = "news-v2"   # v2: a section for global central banks
 
 NEWS_SYSTEM = """You are a markets news editor writing a briefing for one private investor in India.
 
@@ -116,7 +116,8 @@ Hard rules:
 Format (markdown, under 350 words):
 **Top line:** one or two sentences on the most consequential item(s), with citations.
 Then only the sections that have items, 1-4 bullets each:
-**Monetary policy & RBI**, **Market regulation (SEBI)**, **Government & fiscal**, **Markets & companies**
+**Monetary policy & RBI**, **Market regulation (SEBI)**, **Government & fiscal**,
+**Global central banks** (US Fed, ECB, Bank of England, Bank of Japan: name the bank), **Markets & companies**
 **Worth reading in full:** up to 3 bullets: item number and a few words on why.
 **Gaps:** one line on what this briefing cannot tell you."""
 

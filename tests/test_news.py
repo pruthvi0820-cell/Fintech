@@ -117,6 +117,6 @@ def test_check_sources_reports_each_feed(monkeypatch, capsys):
     spec.loader.exec_module(script)
     assert script.check_sources() == 0
     out = capsys.readouterr().out
-    assert "[OK  ] off US Federal Reserve" in out and "5 items, newest 2026-10-09" in out
-    assert "[FAIL] off Bank of Japan" in out and "ConnectionError: refused" in out
+    assert "[OK  ] on  US Federal Reserve" in out and "5 items, newest 2026-10-09" in out
+    assert "[FAIL] on  Bank of Japan" in out and "ConnectionError: refused" in out
     assert f"{len(SOURCES) - 1} of {len(SOURCES)} sources work" in out

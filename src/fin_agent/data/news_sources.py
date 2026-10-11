@@ -50,7 +50,8 @@ SOURCES: list[FeedSource] = [
     FeedSource(
         "PIB", "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3", "government",
         enabled=False,
-        notes="Returned Hindi titles with no dates when tested 2026-10-07. Find the English feed before enabling.",
+        notes="2026-10-11: 20 items but no dates (2026-10-07: Hindi titles). Undated news can't be measured "
+              "against prices, so it stays off.",
     ),
     FeedSource(
         "Economic Times Markets", "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
@@ -62,23 +63,23 @@ SOURCES: list[FeedSource] = [
         notes="High volume; includes broker stock tips.",
     ),
     # Global central banks: their decisions move currencies, foreign flows and Indian markets.
-    # Added 2026-10-10 from each bank's published RSS address; not yet seen working from FinTray, so
-    # off until `python scripts/news_digest.py --check-sources` shows them working (then set verified).
+    # Added 2026-10-10; all four returned dated items via `news_digest.py --check-sources` on the
+    # user's computer on 2026-10-11 (Fed 20, ECB 15, BoE 50, BoJ 51 items).
     FeedSource(
-        "US Federal Reserve", "https://www.federalreserve.gov/feeds/press_all.xml", "central bank", enabled=False,
+        "US Federal Reserve", "https://www.federalreserve.gov/feeds/press_all.xml", "central bank", verified="2026-10-11",
         region="United States", tz=ZoneInfo("America/New_York"),
         notes="All press releases: rate decisions, statements, enforcement.",
     ),
     FeedSource(
-        "European Central Bank", "https://www.ecb.europa.eu/rss/press.html", "central bank", enabled=False,
+        "European Central Bank", "https://www.ecb.europa.eu/rss/press.html", "central bank", verified="2026-10-11",
         region="Euro area", tz=ZoneInfo("Europe/Berlin"), notes="Press releases incl. monetary policy decisions.",
     ),
     FeedSource(
-        "Bank of England", "https://www.bankofengland.co.uk/rss/news", "central bank", enabled=False,
+        "Bank of England", "https://www.bankofengland.co.uk/rss/news", "central bank", verified="2026-10-11",
         region="United Kingdom", tz=ZoneInfo("Europe/London"), notes="News incl. Bank Rate decisions.",
     ),
     FeedSource(
-        "Bank of Japan", "https://www.boj.or.jp/en/rss/whatsnew.xml", "central bank", enabled=False,
+        "Bank of Japan", "https://www.boj.or.jp/en/rss/whatsnew.xml", "central bank", verified="2026-10-11",
         region="Japan", tz=ZoneInfo("Asia/Tokyo"), notes="What's new (English).",
     ),
     FeedSource(

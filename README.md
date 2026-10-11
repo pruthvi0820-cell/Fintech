@@ -66,7 +66,7 @@ Small local models break the "only use the given numbers" rule more often than l
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 505 tests, no network needed
+pytest                      # 519 tests, no network needed
 ```
 
 ## Trying it without a broker account
@@ -88,7 +88,8 @@ streamlit run scripts/app.py        # opens http://localhost:8501
 
 **🔔 Alerts** (the first tab):
 - One list of what needs a look, most important first: your watchlist and holdings meeting 4+ of 5 buy conditions, holdings meeting 4+ sell conditions, saved events (Events tab) from the last 3 days that link to them, paper trades closed in the last 7 days or within 2% of their stop, and journal lots turning long-term within 30 days.
-- A watchlist editor (saved in `journal/watchlist.json`). Facts with their source, never instructions. Alerts show while FinTray is open; phone notifications come later.
+- A watchlist editor (saved in `journal/watchlist.json`). Facts with their source, never instructions.
+- **📱 On your phone (Telegram, free):** create a bot with @BotFather, put its token in `.env` as `FIN_AGENT_TELEGRAM_TOKEN`, message the bot once, run `python scripts/alerts_runner.py --setup` for your chat id (`FIN_AGENT_TELEGRAM_CHAT_ID`). Then `python scripts/alerts_runner.py` checks every 15 minutes in market hours (also scanning the news) and sends each new alert once, while this computer is on. `--once` checks a single time. Same rules as the Alerts tab; nothing in it can trade.
 
 **📈 Chart & signals** (swing trading, daily candles):
 - **Stock summary** at the top: the minimum to buy (1 share plus estimated costs), your own journal record for the stock, and a measured record per style: win rate, loss rate, average profit when it won, average loss when it lost, and holding time for swing (FinTray's rules), and for holding 1 week, 1 month, 3 months, 1, 3 and 5 years ("bought on any past day, sold N later", from all the price history Yahoo has). Thin samples are flagged; intraday waits for minute data (Upstox step). Measured past, not a forecast.

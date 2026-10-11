@@ -39,6 +39,7 @@ from fin_agent.portfolio.allocation import (TargetError, drifts, health_flags, l
                                             sector_mix)
 from fin_agent.portfolio.lots import (build_lots, fy_summary, harvest_ideas, lot_rows, parse_tradebook_csv,
                                       trades_from_journal)
+from fin_agent.pipelines.alerts import gather_alerts
 from fin_agent.pipelines.ask import CACHEABLE_KINDS, answer, cache_key
 from fin_agent.pipelines.fundamentals import (SOURCE_LABELS, analysis_markdown, build_fundamentals_report,
                                               load_statements)
@@ -364,33 +365,14 @@ def alerts_tab(portfolio) -> None:
             if remove and st.button("Remove selected"):
                 watch = alerts_mod.save_watchlist([w for w in watch if w not in remove])
     held = {f"{s}.NS" for s in (portfolio.symbols if portfolio else [])}
-    tickers = sorted(set(watch) | held)
     today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
-
-    signals = {}
-    with st.spinner("Checking your stocks…"):
-        for tk in tickers:
-            bars = safe_bars(tk)
-            if bars is not None:
-                signals[tk] = latest_signals(bars)
-    alerts = alerts_mod.signal_alerts(signals, held)
     try:
-        saved = events_mod.EventStore(events_mod.default_path()).recent(today - timedelta(days=alerts_mod.EVENT_DAYS))
-        alerts += alerts_mod.event_alerts(saved, set(tickers), today)
+        store = events_mod.EventStore(events_mod.default_path())
     except (OSError, sqlite3.Error):
-        pass
-    book = get_paper()
-    if book is not None:
-        trades = book.trades()
-        open_tk = sorted(set(trades.loc[trades["status"] == "open", "ticker"])) if not trades.empty else []
-        prices = {tk: float(b["Close"].iloc[-1]) for tk in open_tk if (b := safe_bars(tk)) is not None}
-        alerts += alerts_mod.paper_alerts(trades, prices, today)
-    journal = get_journal()
-    if journal is not None:
-        rows = lot_rows(build_lots(trades_from_journal(journal.entries())), {}, today)
-        alerts += alerts_mod.tax_alerts(rows)
-
-    alerts = alerts_mod.sort_alerts(alerts)
+        store = None
+    with st.spinner("Checking your stocks…"):
+        alerts, tickers = gather_alerts(watch, held, today, safe_bars, events=store, paper=get_paper(),
+                                        journal=get_journal())
     if not tickers:
         st.info("Add stocks to your watchlist (above) or upload your holdings in the sidebar to get signal alerts.")
     if not alerts:
@@ -399,8 +381,8 @@ def alerts_tab(portfolio) -> None:
     for al in alerts:
         st.markdown(f"{icon.get(al.level, '•')} {esc(al.text)}")
     st.caption(f"Checked {len(tickers)} stock(s) at {datetime.now(ZoneInfo('Asia/Kolkata')):%H:%M} IST. Prices are "
-               "delayed; events come from the Events tab's scans. Alerts appear when FinTray is open (no phone "
-               "notifications yet).")
+               "delayed; events come from the Events tab's scans. Phone alerts: Telegram, via scripts/alerts_runner.py "
+               "(see the README).")
 
 
 def get_notes() -> notes_mod.NoteStore | None:

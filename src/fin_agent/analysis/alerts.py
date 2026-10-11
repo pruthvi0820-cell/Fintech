@@ -9,12 +9,15 @@ Sources of alerts:
 - saved events (Events tab) from the last few days that link to a watched or held stock
 - paper trades closed recently, or open ones within a few percent of their stop
 - lots that turn long-term soon (lower tax), from the holding tracker
+- news that may change a tax rule (capital gains, STT, Finance Bill...): a cue to check and update
+  the rules and the user's /store tax notes, never an automatic change
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -29,6 +32,9 @@ EVENT_DAYS = 3               # saved events this recent
 PAPER_CLOSED_DAYS = 7
 LONG_TERM_SOON_DAYS = 30
 ORDER = {"high": 0, "medium": 1, "info": 2}
+TAX_NEWS = re.compile(r"(?<!\w)(capital gains?|LTCG|STCG|securities transaction tax|STT|section 112A|section 111A|"
+                      r"Finance Bill|Union Budget|CBDT|tax on (?:shares|equity|dividends?))(?!\w)", re.IGNORECASE)
+OFFICIAL_CATEGORIES = frozenset({"regulator", "government", "central bank"})
 
 
 @dataclass(frozen=True)
@@ -121,6 +127,24 @@ def tax_alerts(lot_rows: list[dict[str, Any]]) -> list[Alert]:
             out.append(Alert("info", "tax", r["symbol"],
                              f"{r['symbol']} bought {r['bought'].isoformat()} becomes long-term in "
                              f"{r['days_to_long_term']} days ({r['long_term_from'].isoformat()})."))
+    return out
+
+
+def tax_news_alerts(items: list[Any], today: date, days: int = EVENT_DAYS) -> list[Alert]:
+    """News items that mention capital-gains tax topics. FinTray's rules are never changed by this."""
+    out = []
+    since = today - timedelta(days=days)
+    for it in items or []:
+        if it.published is None or it.published.date() < since:
+            continue
+        m = TAX_NEWS.search(f"{it.title} {it.summary}")
+        if not m:
+            continue
+        official = it.category in OFFICIAL_CATEGORIES
+        out.append(Alert("high" if official else "medium", "tax-news", "TAX",
+                         f"Possible tax-rule news ({it.source}, {it.published.date().isoformat()}, mentions "
+                         f"'{m.group(0)}'): {it.title}. If a rule changed, check the official text and update "
+                         "your notes (/store tax: ...)."))
     return out
 
 

@@ -89,11 +89,12 @@ def run_once(token: str, chat_id: str, scan_news: bool = True, now: datetime | N
         return cache[tk]
 
     store = EventStore(events_path())
+    items = []
     if scan_news:
         items, _ = collect_news(get_sources(), hours=24, max_items=300)
         store.save(detect_events(items))
     alerts, _ = gather_alerts(load_watchlist(), set(), now.astimezone(IST).date(), bars, events=store,
-                              paper=PaperBook(paper_path()), journal=Journal(journal_path()))
+                              paper=PaperBook(paper_path()), journal=Journal(journal_path()), news=items)
     path = sent_path()
     sent = load_sent(path, now)
     fresh = new_alerts(alerts, sent)

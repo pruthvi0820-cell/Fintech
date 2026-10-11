@@ -24,7 +24,7 @@ BarsLoader = Callable[[str], "pd.DataFrame | None"]
 
 def gather_alerts(watchlist: list[str], held: set[str], today: date, bars: BarsLoader, *,
                   events: EventStore | None = None, paper: PaperBook | None = None,
-                  journal: Journal | None = None) -> tuple[list[rules.Alert], list[str]]:
+                  journal: Journal | None = None, news: list | None = None) -> tuple[list[rules.Alert], list[str]]:
     """(alerts sorted most important first, the tickers whose signals were checked)."""
     tickers = sorted(set(watchlist) | held)
     signals = {}
@@ -50,4 +50,6 @@ def gather_alerts(watchlist: list[str], held: set[str], today: date, bars: BarsL
         alerts += rules.paper_alerts(trades, prices, today)
     if journal is not None:
         alerts += rules.tax_alerts(lot_rows(build_lots(trades_from_journal(journal.entries())), {}, today))
+    if news:
+        alerts += rules.tax_news_alerts(news, today)
     return rules.sort_alerts(alerts), tickers

@@ -37,6 +37,7 @@ from fin_agent.knowledge import notes as notes_mod
 from fin_agent.portfolio import paper as paper_mod
 from fin_agent.portfolio.allocation import (TargetError, drifts, health_flags, load_targets, save_targets,
                                             sector_mix)
+from fin_agent.portfolio.tax_plan import PlanError as TaxPlanError, gain_harvest_plan, simulate_sale
 from fin_agent.portfolio.lots import (build_lots, fy_summary, harvest_ideas, lot_rows, parse_tradebook_csv,
                                       trades_from_journal)
 from fin_agent.pipelines.alerts import gather_alerts
@@ -825,11 +826,55 @@ def tax_timing_section() -> None:
         } for r in rows]), hide_index=True, width="stretch")
     for idea in harvest_ideas(rows, summary):
         st.info(idea)
+    tax_what_if(book, prices, today)
     st.caption(f"Rules used: {rule.source} (in force from {rule.effective_from.isoformat()}). FinTray's list was "
                f"last reviewed {tax_rules.LAST_REVIEWED}; later Budget changes are not included until added. "
                "Not modelled: surcharge, the 87A rebate, grandfathering for shares bought before 1 Feb 2018, "
                "intraday (speculative) trades, and F&O. Estimates for planning; confirm with a CA before filing. "
                "Save rules you verify with /store tax: … in the Ask AI tab.")
+
+
+def tax_what_if(book, prices: dict, today) -> None:
+    """Simulate a sale (FIFO lots, tax before/after) and show the gain-harvesting plan."""
+    symbols = sorted({lot.symbol for lot in book.open_lots})
+    if not symbols:
+        return
+    st.markdown("**🧾 What if I sell?**")
+    c1, c2, c3 = st.columns(3)
+    sym = c1.selectbox("Stock", symbols, key="whatif_symbol")
+    have = sum(lot.quantity for lot in book.open_lots if lot.symbol == sym)
+    shares = c2.number_input(f"Shares (you hold {have:g})", min_value=1.0, max_value=float(have),
+                             value=float(have), step=1.0, key="whatif_shares")
+    price = c3.number_input("At price ₹", min_value=0.05, value=float(prices.get(sym) or 1.0), step=0.05,
+                            key="whatif_price")
+    try:
+        sim = simulate_sale(book, sym, shares, price, today)
+    except TaxPlanError as exc:
+        st.warning(str(exc))
+    else:
+        st.dataframe(pd.DataFrame([{
+            "Lot bought": p.buy_date.isoformat(), "Shares": p.quantity, "Buy price": p.buy_price,
+            "Gain": f"₹{p.gain:,.0f}", "Taxed as": "long-term" if p.long_term else "short-term",
+        } for p in sim.pieces]), hide_index=True, width="stretch")
+        k = st.columns(3)
+        k[0].metric("Gain from this sale", f"₹{sim.gain:,.0f}")
+        k[1].metric("Estimated tax this year", f"₹{sim.after['estimated_tax']:,.0f}",
+                    f"{sim.extra_tax:+,.0f} vs not selling", delta_color="inverse")
+        k[2].metric("LTCG exemption left after", f"₹{sim.after['exemption_left']:,.0f}")
+    plan = gain_harvest_plan(book, prices, today)
+    if plan:
+        total = sum(p["gain"] for p in plan)
+        st.markdown(f"**Gain harvesting:** these long-term shares could be sold this financial year with "
+                    f"₹{total:,.0f} of gain, inside the unused exemption (no tax). Buying them back resets their "
+                    "cost higher, so less gain is taxed later. Sales use the oldest lots first.")
+        st.dataframe(pd.DataFrame([{
+            "Stock": p["symbol"], "Lot bought": p["bought"].isoformat(), "Shares": p["shares"],
+            "Of lot": p["lot_shares"], "Buy price": p["buy_price"], "Price now": p["price"],
+            "Gain": f"₹{p['gain']:,.0f}",
+        } for p in plan]), hide_index=True, width="stretch")
+    st.caption("Planning estimates with the rules in force today. Prices are delayed and change before you sell. "
+               "There is no specific 'wash sale' rule for shares in India, and harvesting is widely used, but "
+               "confirm your own case with a CA.")
 
 
 def statements_company(file_bytes: bytes) -> str:

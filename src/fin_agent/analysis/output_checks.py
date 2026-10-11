@@ -29,6 +29,7 @@ from typing import Any
 
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+(?:[+-]\d{2}:?\d{2}|Z)?)?")
 _CITATION = re.compile(r"\[(\d+)\]")
+_SOURCE_REF = re.compile(r"\b(?:note|lib)\s*#\s*\d+", re.IGNORECASE)   # "note #3", "lib #2": checked as citations
 _NUM = re.compile(r"(?<![\w.])[-+−]?(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?")
 
 # Window lengths appear in prose ("50-day", "52-week", "RSI(14)", "1m") without being data values.
@@ -86,7 +87,7 @@ class NumberCheck:
 
 
 def _strip(text: str) -> str:
-    return _CITATION.sub(" ", _ISO_DATE.sub(" ", text))
+    return _SOURCE_REF.sub(" ", _CITATION.sub(" ", _ISO_DATE.sub(" ", text)))
 
 
 def _numbers_in_text(text: str) -> list[str]:

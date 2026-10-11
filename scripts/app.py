@@ -33,6 +33,7 @@ from fin_agent.data import tax_rules
 from fin_agent.data.news import collect_news
 from fin_agent.data.news_sources import get_sources
 from fin_agent.data.fundamentals import fetch_quote
+from fin_agent.knowledge import library as library_mod
 from fin_agent.knowledge import notes as notes_mod
 from fin_agent.portfolio import paper as paper_mod
 from fin_agent.portfolio.allocation import (TargetError, drifts, health_flags, load_targets, save_targets,
@@ -411,6 +412,55 @@ def notes_panel(store: notes_mod.NoteStore | None) -> None:
             else:
                 st.success(f"Saved {upload.name} as {len(saved)} note(s): #{saved[0].id}"
                            + (f" to #{saved[-1].id}" if len(saved) > 1 else "") + f" under '{saved[0].topic}'.")
+
+
+def get_library() -> library_mod.Library | None:
+    try:
+        return library_mod.Library(library_mod.default_path())
+    except (OSError, sqlite3.Error) as exc:
+        st.error(f"Can't open the library file {library_mod.default_path()}: {exc}")
+        return None
+
+
+def library_panel(lib: library_mod.Library | None) -> None:
+    """Add trusted documents; the AI answers questions from their best-matching passages."""
+    if lib is None:
+        return
+    docs = lib.documents()
+    with st.expander(f"📚 Trusted library ({len(docs)} document(s)): books, circulars, Budget papers"):
+        st.caption("Add documents you trust. When a question matches them, the AI is given the best passages, "
+                   "cites them as (lib #2, p.14) and its numbers are checked against them. Search matches words, "
+                   "so ask with the words the document uses. Stored only on this computer (library/ folder).")
+        upload = st.file_uploader("PDF, TXT or MD file", type=["pdf", "txt", "md"], key="lib_file")
+        c1, c2 = st.columns(2)
+        title = c1.text_input("Title", key="lib_title", placeholder="e.g. Union Budget 2024-25 speech")
+        kind = c2.selectbox("How trusted", list(library_mod.KINDS), format_func=library_mod.KINDS.get, key="lib_kind")
+        c3, c4, c5 = st.columns(3)
+        publisher = c3.text_input("Publisher", key="lib_publisher", placeholder="e.g. Ministry of Finance")
+        published = c4.text_input("Published (YYYY-MM-DD)", key="lib_published")
+        url = c5.text_input("Link (optional)", key="lib_url")
+        if upload and st.button("Add to library"):
+            try:
+                with st.spinner("Reading the file…"):
+                    doc = lib.add(upload.name, upload.getvalue(), title, kind, publisher, published, url)
+            except library_mod.LibraryError as exc:
+                st.error(str(exc))
+            else:
+                st.success(f"Added as lib #{doc.id}: {doc.title} ({doc.passages} passages).")
+                docs = lib.documents()
+        if docs:
+            st.dataframe(pd.DataFrame([{"#": d.id, "Title": d.title, "Kind": d.kind, "Publisher": d.publisher or "",
+                                        "Published": d.published or "", "Passages": d.passages,
+                                        "File": d.file_name} for d in docs]), hide_index=True)
+            c6, c7 = st.columns([1, 2])
+            pick = c6.selectbox("Remove document #", [d.id for d in docs], key="lib_remove_id")
+            if c7.checkbox("Yes, remove it from search", key="lib_remove_ok") and c7.button("Remove"):
+                try:
+                    gone = lib.remove(int(pick))
+                except library_mod.LibraryError as exc:
+                    st.error(str(exc))
+                else:
+                    st.success(f"Removed lib #{gone.id} ({gone.title}). Add the file again to bring it back.")
 
 
 def summary_section(ticker: str, last_close: float, result, cost_per_side: float) -> None:
@@ -917,6 +967,8 @@ with tab_chat:
 
     notes_store = get_notes()
     notes_panel(notes_store)
+    library = get_library()
+    library_panel(library)
 
     pending = None
     if not st.session_state.messages:
@@ -952,7 +1004,8 @@ with tab_chat:
             except ValueError:
                 model_name = "?"
             key = cache_key(question, include_news, portfolio, model_name, today,
-                            notes_store.version() if notes_store else "")
+                            (notes_store.version() if notes_store else "") + "|"
+                            + (library.version() if library else ""))
             if notes_mod.is_command(question):      # notes commands: Python only, works even without the model
                 result = answer(question, None, notes=notes_store)
                 result_md, footer = result.markdown, None
@@ -967,7 +1020,7 @@ with tab_chat:
                         result_md, footer = f"Can't start the model: {exc}", None
                     else:
                         result = answer(question, client, portfolio, include_news, on_text=show_partial,
-                                        notes=notes_store)
+                                        notes=notes_store, library=library)
                         result_md, footer = result.markdown, result.footer
                         if result.kind in CACHEABLE_KINDS:
                             memory[key] = (result_md, footer)

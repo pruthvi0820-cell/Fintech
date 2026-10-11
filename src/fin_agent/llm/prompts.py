@@ -163,7 +163,7 @@ def build_portfolio_user_prompt(question: str, snapshot: dict[str, Any]) -> str:
 
 # ---------------------------------------------------------------- tutor
 
-TUTOR_PROMPT_VERSION = "tutor-v3"   # v3: answers from the user's saved notes, with citations
+TUTOR_PROMPT_VERSION = "tutor-v4"   # v3: saved notes with citations; v4: trusted-library passages too
 
 TUTOR_SYSTEM = """You are a patient finance tutor for a beginner investor in India.
 
@@ -180,14 +180,24 @@ Rules:
    use exactly as labelled, like (note #3). Use the notes' numbers as written and no made-up example
    numbers. If a note disagrees with what you know, follow the note and say that it does. If the
    notes don't answer the question, say so.
+7. If the message includes passages from the reader's library, base the answer on them and cite each
+   one you use exactly as labelled, like (lib #2, p.14). Quote their numbers as written. Prefer
+   "official" documents when passages disagree, and say they disagree. Mention the document's date
+   when the rule may have changed since. Never cite a passage you were not given. If the passages
+   don't answer the question, say so instead of guessing.
 
 Markdown, under 140 words."""
 
 
-def build_tutor_user_prompt(question: str, notes: str | None = None) -> str:
-    if not notes:
+def build_tutor_user_prompt(question: str, notes: str | None = None, library: str | None = None) -> str:
+    if not notes and not library:
         return question
-    return f"Question: {question}\n\nThe reader's saved notes:\n{notes}"
+    out = f"Question: {question}"
+    if notes:
+        out += f"\n\nThe reader's saved notes:\n{notes}"
+    if library:
+        out += f"\n\nPassages from the reader's library:\n{library}"
+    return out
 
 
 # ---------------------------------------------------------------- company fundamentals

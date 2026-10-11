@@ -4,7 +4,8 @@ Routing is deterministic (no model call), so it is testable and cannot be talked
 - portfolio words ("my portfolio", "diversified", "allocation") -> portfolio explanation
 - a ticker or known company name -> trend analysis (and optionally news)
 - anything else -> tutor (general explanation, clearly labelled as not checked against data; if the
-  user's saved notes match, they are given to the model, cited, and the numbers checked against them)
+  user's saved notes or trusted-library passages match, they are given to the model, cited, and the
+  numbers and citations checked against them)
 - "/store", "/list", "/update", "/delete", "/history", "/help" -> the user's notes, handled in Python
 Every route keeps the existing safety layers: Python numbers, checks after generation, escaping.
 """
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -31,6 +33,7 @@ from fin_agent.llm.prompts import (
     build_portfolio_user_prompt,
     build_tutor_user_prompt,
 )
+from fin_agent.knowledge.library import Library, citation_problems, library_block, sources_line
 from fin_agent.knowledge.notes import NoteStore, is_command, notes_block, run_command
 from fin_agent.pipelines.brief import esc, md_link, safe_model_text
 from fin_agent.pipelines.news import build_news_digest
@@ -152,16 +155,33 @@ def _portfolio(question: str, client: LLMClient, portfolio: Portfolio | None, st
     return Answer("portfolio", "\n".join(parts), _footer(res, PORTFOLIO_PROMPT_VERSION))
 
 
-def _tutor(question: str, client: LLMClient, stream: dict, notes: NoteStore | None = None) -> Answer:
+def _tutor(question: str, client: LLMClient, stream: dict, notes: NoteStore | None = None,
+           library: Library | None = None) -> Answer:
     found = notes.search(question) if notes is not None else []
+    try:
+        passages = library.search(question) if library is not None else []
+    except (sqlite3.Error, OSError):              # a broken library file must not stop the answer
+        logger.exception("Library search failed")
+        passages = []
     block = notes_block(found) if found else None
-    res = client.complete(TUTOR_SYSTEM, build_tutor_user_prompt(question, block), **stream)
+    lib_block = library_block(passages) if passages else None
+    res = client.complete(TUTOR_SYSTEM, build_tutor_user_prompt(question, block, lib_block), **stream)
     parts = [f"> {TRUNCATION_WARNING}", ""] if res.truncated else []
     parts.append(safe_model_text(res.text))
-    if found:
-        check = check_numbers(res.text, {"notes": block, "question": question})
-        cited = ", ".join(f"#{n.id}" for n in found)
-        parts += ["", f"> Given your saved notes {cited}. {esc(check.summary())}"]
+    if found or passages:
+        check = check_numbers(res.text, {"notes": block or "", "library": lib_block or "", "question": question})
+        given = []
+        if found:
+            given.append("your saved notes " + ", ".join(f"#{n.id}" for n in found))
+        if passages:
+            given.append("library passages " + ", ".join(p.citation() for p in passages))
+        parts += ["", f"> Given {' and '.join(given)}. {esc(check.summary())}"]
+        if passages:
+            used = sources_line(passages, res.text)
+            parts.append(f"> Library sources used: {esc(used)}" if used else
+                         "> The answer cites no library passage: treat it as the model's own explanation.")
+            for problem in citation_problems(res.text, passages):
+                parts.append(f"> ⚠️ Citation check: {esc(problem)}.")
     else:
         parts += ["", NOT_CHECKED]
     return Answer("tutor", "\n".join(parts), _footer(res, TUTOR_PROMPT_VERSION))
@@ -177,6 +197,7 @@ def answer(
     news_builder: Callable[..., Any] = build_news_digest,
     on_text: Callable[[str], None] | None = None,
     notes: NoteStore | None = None,
+    library: Library | None = None,
 ) -> Answer:
     """Route a question and return a rendered, checked answer. Never raises for expected failures.
 
@@ -197,7 +218,7 @@ def answer(
             return _portfolio(q, client, portfolio, stream)
         if ticker := find_ticker(q, portfolio):
             return _stock(ticker, client, include_news, trend_builder, news_builder, stream)
-        return _tutor(q, client, stream, notes)
+        return _tutor(q, client, stream, notes, library)
     except MarketDataError as exc:
         return Answer("error", f"Could not get price data. {esc(str(exc))}")
     except requests.Timeout:

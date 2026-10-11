@@ -49,6 +49,7 @@ def app(monkeypatch, tmp_path):
     st.cache_data.clear()
     monkeypatch.setenv("FIN_AGENT_JOURNAL_PATH", str(tmp_path / "journal.sqlite3"))
     monkeypatch.setenv("FIN_AGENT_NOTES_PATH", str(tmp_path / "notes.sqlite3"))
+    monkeypatch.setenv("FIN_AGENT_LIBRARY_PATH", str(tmp_path / "library.sqlite3"))
     monkeypatch.setattr(market_data, "fetch_history", fake_history)
     monkeypatch.setattr(factory, "client_from_env", lambda max_tokens=1200: FakeClient())
     monkeypatch.setenv("FIN_AGENT_PROVIDER", "ollama")
@@ -74,7 +75,7 @@ def test_tutor_question_round_trip_is_escaped_and_labelled(app):
     shown = " ".join(m.value for m in app.markdown)
     assert "RSI measures momentum" in shown and "<script>" not in shown
     assert "not** checked against market data" in shown
-    assert any("tutor-v3" in c.value for c in app.caption)
+    assert any("tutor-v4" in c.value for c in app.caption)
 
 
 def test_portfolio_question_without_upload_asks_for_csv(app):
@@ -363,3 +364,18 @@ def test_alerts_tab_watchlist_and_tax_alert(app, monkeypatch, tmp_path):
         db.execute("UPDATE entries SET created_at = ? WHERE id = ?", (old, entry_id))
     app.run()
     assert any("INFY bought" in m.value and "becomes long-term in" in m.value for m in app.markdown)
+
+
+def test_library_panel_lists_documents_and_the_chat_uses_them(app, tmp_path):
+    from fin_agent.knowledge.library import Library
+    Library(tmp_path / "library.sqlite3").add(
+        "rsi.txt", b"RSI momentum indicator: above 70 is called overbought, below 30 oversold.",
+        "Indicators guide", "book", "NSE Academy")
+    app.run()
+    assert not app.exception
+    assert any("📚 Trusted library (1 document(s))" in e.label for e in app.expander)
+    assert app.dataframe[-1].value["Title"].tolist() == ["Indicators guide"]
+    app.chat_input[0].set_value("What does RSI momentum show?").run()
+    assert not app.exception
+    shown = " ".join(m.value for m in app.markdown)
+    assert "Given library passages lib #1" in shown and "cites no library passage" in shown

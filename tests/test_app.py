@@ -61,7 +61,7 @@ def test_page_loads_with_examples_and_no_errors(app):
     assert not app.exception
     assert app.title[0].value == "FinTray"
     assert [b.label for b in app.button] == ["Add to watchlist", "Analyze", "Run candle test", "Load fundamentals",
-                                              "Scan news now",
+                                              "Scan news now", "Save risk rules",
                                               "How is RELIANCE.NS doing?",
                                               "What is RSI?", "Is my portfolio diversified?",
                                               "Load my Zerodha holdings"]
@@ -421,7 +421,7 @@ def test_next_candle_test_runs_on_a_currency_pair(app):
     assert not app.exception
     shown = " ".join(m.value for m in app.markdown)
     assert "USDINR=X, 15m candles" in shown and "must be right **54.9%**" in shown
-    table = app.dataframe[-1].value
+    table = next(d.value for d in app.dataframe if "Guesses" in d.value.columns)
     assert table["Rule"].iloc[0].startswith("RSI below 30") and len(table) == 5
 
 
@@ -441,3 +441,12 @@ def test_chart_shows_regime_and_intraday_timeframe(app):
     shown = " ".join(m.value for m in app.markdown)
     assert "**Market regime (15m candles):" in shown
     assert any("ADX" in c.value for c in app.caption)
+
+
+def test_risk_rules_panel_shows_status_and_saves_stricter_rules(app):
+    app.run()
+    assert any("🛡️ Risk rules · today 0 of 2 losses" in e.label for e in app.expander)
+    app.number_input[[n.label for n in app.number_input].index("Max risk per trade %")].set_value(0.5)
+    next(b for b in app.button if b.label == "Save risk rules").click().run()
+    assert not app.exception
+    assert any("The new limits apply now" in s.value for s in app.success)

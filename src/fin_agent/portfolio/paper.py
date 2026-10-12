@@ -26,6 +26,7 @@ from typing import Any
 import pandas as pd
 
 from fin_agent.analysis.risk import TradePlan
+from fin_agent.analysis.risk_engine import RiskRules, check_trade
 from fin_agent.portfolio.journal import SIGNAL_BUY_SCORE, _trade_stats
 
 DEFAULT_START_CASH = 100_000.0
@@ -134,7 +135,10 @@ class PaperBook:
 
     # ------------------------------------------------------------------ trades
     def open_trade(self, ticker: str, plan: TradePlan, price: float, signals: dict[str, Any], reason: str,
-                   on: date, shares: int | None = None, cost_per_side: float = 0.0015) -> int:
+                   on: date, shares: int | None = None, cost_per_side: float = 0.0015,
+                   rules: RiskRules | None = None, now: datetime | None = None, intraday: bool = False) -> int:
+        """Open a paper trade. The risk engine's hard rules (analysis/risk_engine.py) must pass first;
+        with `rules` None the safe defaults apply. Capital for the % limits is the starting money."""
         ticker, reason = (ticker or "").strip().upper(), (reason or "").strip()
         shares = int(shares if shares is not None else plan.shares)
         if not ticker:
@@ -152,6 +156,16 @@ class PaperBook:
                              f"target ₹{plan.target:,.2f}.")
         if any(t == ticker for t in self.trades().query("status == 'open'")["ticker"]):
             raise PaperError(f"You already have an open paper trade in {ticker}. Close it first.")
+        df = self.trades()
+        verdict = check_trade(
+            ticker=ticker, entry=float(price), stop=plan.stop, target=plan.target, shares=shares,
+            capital=self.start_cash(), cost_per_side=cost_per_side,
+            day_results=[float(x) for x in df.loc[(df["status"] == "closed") & (df["closed_on"] == on.isoformat()),
+                                                  "pnl"]],
+            trades_today=int((df["opened_on"] == on.isoformat()).sum()), rules=rules or RiskRules(), now=now,
+            intraday=intraday)
+        if not verdict.allowed:
+            raise PaperError("Risk rules: " + verdict.message())
         cost = shares * price * (1 + cost_per_side)
         if cost > self.cash() + 1e-6:
             raise PaperError(f"Not enough virtual cash: this needs ₹{cost:,.2f}, you have ₹{self.cash():,.2f}.")

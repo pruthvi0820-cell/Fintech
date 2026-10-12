@@ -75,8 +75,9 @@ def test_check_exits_closes_hit_trades_only(book):
     ({"price": 94.0}, "must be between the stop-loss"),
     ({"price": 0}, "No valid price"),
     ({"shares": 0}, "at least 1"),
-    ({"shares": 2000}, "Not enough virtual cash"),
-], ids=["no-reason", "below-stop", "no-price", "zero-shares", "too-expensive"])
+    ({"shares": 1200, "plan": plan(stop=99.5, target=101.0)}, "Not enough virtual cash"),   # passes risk rules
+    ({"shares": 2000}, "Risk rules: This trade risks"),
+], ids=["no-reason", "below-stop", "no-price", "zero-shares", "too-expensive", "too-risky"])
 def test_invalid_trades_are_refused(book, kwargs, message):
     args = {"ticker": "X.NS", "plan": plan(), "price": 100.0, "signals": {}, "reason": "r", "on": date(2026, 10, 1)}
     args.update(kwargs)

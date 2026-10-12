@@ -31,6 +31,7 @@ from fin_agent.analysis import alerts as alerts_mod
 from fin_agent.broker import zerodha
 from fin_agent.analysis import chart_marks as marks_mod
 from fin_agent.analysis import next_candle
+from fin_agent.analysis import risk_engine
 from fin_agent.analysis.levels import find_levels
 from fin_agent.analysis.regime import SUITS, classify_regime
 from fin_agent.analysis import events as events_mod
@@ -203,12 +204,46 @@ def paper_trade_section(ticker: str, sig: dict, plan, last_close: float, cost_pe
     today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
     try:
         tid = book.open_trade(ticker, plan, last_close, sig, reason, today, shares=int(shares),
-                              cost_per_side=cost_per_side)
+                              cost_per_side=cost_per_side, rules=risk_engine.load_rules())
     except paper_mod.PaperError as exc:
         st.warning(str(exc))
     else:
         st.success(f"Paper trade #{tid} opened: {int(shares)} × {ticker} at ₹{last_close:,.2f}, stop ₹{plan.stop:,.2f}, "
                    f"target ₹{plan.target:,.2f}.")
+
+
+def risk_rules_panel(book) -> None:
+    """Today's status against the hard rules, and editing them (stricter now, looser from tomorrow)."""
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    rules = risk_engine.load_rules(today=today)
+    df = book.trades()
+    day_pnl = [float(x) for x in df.loc[(df["status"] == "closed") & (df["closed_on"] == today.isoformat()), "pnl"]]
+    losses = [x for x in day_pnl if x < 0]
+    limit = rules.daily_loss_pct * book.start_cash()
+    stopped = len(losses) >= rules.max_losses_per_day or -sum(losses) >= limit
+    with st.expander(("⛔ " if stopped else "🛡️ ") + f"Risk rules · today {len(losses)} of {rules.max_losses_per_day} "
+                     f"losses, ₹{-sum(losses):,.0f} of ₹{limit:,.0f} daily limit used"):
+        st.caption("Every paper trade (and later every real order) must pass these. They are checked in code; the AI "
+                   "cannot change or skip them. Stricter limits apply at once; looser ones from tomorrow.")
+        st.dataframe(pd.DataFrame(risk_engine.rules_table(rules)), hide_index=True)
+        with st.form("risk_rules"):
+            c1, c2, c3 = st.columns(3)
+            risk = c1.number_input("Max risk per trade %", 0.1, 2.0, rules.max_risk_pct * 100, 0.1)
+            daily = c2.number_input("Daily loss limit %", 0.5, 5.0, rules.daily_loss_pct * 100, 0.5)
+            losses_n = c3.number_input("Stop after losses", 1, 3, rules.max_losses_per_day)
+            c4, c5, c6 = st.columns(3)
+            trades_n = c4.number_input("Max trades per day", 1, 10, rules.max_trades_per_day)
+            rr = c5.number_input("Min reward-to-risk", 1.0, 5.0, rules.min_reward_risk, 0.25)
+            cutoff = c6.text_input("Intraday cut-off (IST)", rules.intraday_cutoff)
+            if st.form_submit_button("Save risk rules"):
+                try:
+                    msg = risk_engine.save_rules(risk_engine.RiskRules(
+                        round(risk / 100, 4), round(daily / 100, 4), int(losses_n), int(trades_n), float(rr),
+                        cutoff.strip()), today=today)
+                except (risk_engine.RiskRuleError, OSError) as exc:
+                    st.error(str(exc))
+                else:
+                    st.success(msg)
 
 
 def paper_tab() -> None:
@@ -218,6 +253,7 @@ def paper_tab() -> None:
     book = get_paper()
     if book is None:
         return
+    risk_rules_panel(book)
     open_tickers = sorted(set(book.trades().query("status == 'open'")["ticker"]))
     bars = {}
     for tk in open_tickers:

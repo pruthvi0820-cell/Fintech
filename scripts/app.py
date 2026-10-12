@@ -31,6 +31,8 @@ from fin_agent.analysis import alerts as alerts_mod
 from fin_agent.broker import zerodha
 from fin_agent.analysis import chart_marks as marks_mod
 from fin_agent.analysis import next_candle
+from fin_agent.analysis.levels import find_levels
+from fin_agent.analysis.regime import SUITS, classify_regime
 from fin_agent.analysis import events as events_mod
 from fin_agent.data import tax_rules
 from fin_agent.data.news import collect_news
@@ -610,6 +612,21 @@ def marks_section(ticker: str, last_close: float, marks: list) -> None:
                     st.rerun()
 
 
+CHART_INTERVALS = ["1d", "1h", "15m", "5m"]
+
+
+def regime_section(bars: pd.DataFrame, interval: str) -> None:
+    reg = classify_regime(bars)
+    icon = {"trending up": "📈", "trending down": "📉", "ranging": "↔️", "unclear": "❔"}.get(reg["regime"], "•")
+    with st.container(border=True):
+        st.markdown(f"**Market regime ({interval} candles): {icon} {reg['regime']}**"
+                    + ("  ·  ⚠️ **high volatility**" if reg["high_volatility"] else ""))
+        for r in reg["reasons"]:
+            st.caption(r)
+        if SUITS.get(reg["regime"]):
+            st.caption(SUITS[reg["regime"]] + " This describes the market; it is not a signal to trade.")
+
+
 def next_candle_section() -> None:
     """Measure whether simple rules guessed the next candle's direction in real past data."""
     with st.expander("🎲 Does RSI / SMA predict the next candle? (test on real past data)"):
@@ -652,9 +669,13 @@ def next_candle_section() -> None:
 
 
 def chart_tab() -> None:
-    c1, c2 = st.columns([3, 1])
+    c1, c0, c2 = st.columns([3, 1, 1])
     raw = c1.text_input("NSE symbol", value=st.session_state.get("chart_ticker", "RELIANCE.NS"), key="chart_raw",
-                        help="Add .NS for NSE (e.g. ITC.NS) or .BO for BSE. A bare symbol gets .NS.")
+                        help="Add .NS for NSE (e.g. ITC.NS) or .BO for BSE. A bare symbol gets .NS. "
+                             "Currency pairs: USDINR=X, EURINR=X.")
+    interval = c0.selectbox("Candles", CHART_INTERVALS, key="chart_interval",
+                            help="Buy/sell conditions, the backtest and the trade plan always use daily candles. "
+                                 "The chart, regime and support/resistance use the candles you pick here.")
     c2.write("")
     clicked = c2.button("Analyze", type="primary", width="stretch")
     with st.expander("Backtest settings"):
@@ -698,12 +719,26 @@ def chart_tab() -> None:
     for pattern in sig["patterns"]:
         st.info(f"Last candle pattern: {pattern}")
 
+    chart_bars = bars
+    if interval != "1d":
+        try:
+            with st.spinner(f"Fetching {interval} candles…"):
+                chart_bars = load_candles(hist.ticker, interval)
+        except market_data.MarketDataError as exc:
+            st.warning(f"{interval} candles unavailable ({exc}). Showing daily candles.")
+            interval = "1d"
+    regime_section(chart_bars, interval)
+    levels = find_levels(chart_bars)
+
     plan = trade_plan_section(bars, cost / 100)
     log_decision_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
     paper_trade_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
     marks = marks_mod.load_marks().get(hist.ticker, [])
     try:
-        fig = candle_chart(bars, f"{hist.ticker} — daily candles", result, plan, marks)
+        intraday = interval != "1d"
+        shown = chart_bars.tz_convert("Asia/Kolkata") if intraday else chart_bars
+        fig = candle_chart(shown, f"{hist.ticker} — {interval} candles", None if intraday else result, plan, marks,
+                           levels, intraday_nse=intraday and hist.ticker.endswith((".NS", ".BO", "^NSEI")))
     except ImportError:
         st.error('The chart library is not installed. Stop the page (Ctrl+C) and run:  pip install -e ".[app]"  '
                  "then start it again. Everything else on this page works without it.")

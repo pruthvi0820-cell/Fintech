@@ -431,3 +431,13 @@ def test_currency_symbols_are_not_given_nse_suffix(app):
     button(app, "Analyze").click().run()
     assert not app.exception
     assert app.session_state["chart_ticker"] == "USDINR=X"
+
+
+def test_chart_shows_regime_and_intraday_timeframe(app):
+    app.run()
+    app.selectbox(key="chart_interval").set_value("15m").run()
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    shown = " ".join(m.value for m in app.markdown)
+    assert "**Market regime (15m candles):" in shown
+    assert any("ADX" in c.value for c in app.caption)

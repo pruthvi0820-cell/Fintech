@@ -23,7 +23,8 @@ MARK_COLOR = "#c51b7d"
 
 
 def candle_chart(bars: pd.DataFrame, title: str, result: BacktestResult | None = None,
-                 plan: TradePlan | None = None, marks: list | None = None) -> Any:
+                 plan: TradePlan | None = None, marks: list | None = None, levels: list | None = None,
+                 intraday_nse: bool = False) -> Any:
     from plotly.subplots import make_subplots
     import plotly.graph_objects as go
 
@@ -58,6 +59,12 @@ def candle_chart(bars: pd.DataFrame, title: str, result: BacktestResult | None =
                           annotation_text=f"{label} {level:,.2f}", annotation_position="top left",
                           annotation_font_color=color)
 
+    for lv in levels or []:
+        color = "#1a9850" if lv.kind == "support" else "#d73027"
+        fig.add_hline(y=lv.price, line={"width": 1 + min(lv.touches, 4) * 0.4, "color": color}, opacity=0.45,
+                      row=1, col=1, annotation_text=f"{lv.kind} {lv.price:,.2f} ({lv.touches}x)",
+                      annotation_position="top right", annotation_font_color=color)
+
     for m in marks or []:
         fig.add_hline(y=m.price, line={"width": 1.3, "dash": "dot", "color": MARK_COLOR}, row=1, col=1,
                       annotation_text=f"✏️ {m.label} {m.price:,.2f}", annotation_position="bottom right",
@@ -74,7 +81,10 @@ def candle_chart(bars: pd.DataFrame, title: str, result: BacktestResult | None =
                       newshape={"line": {"color": MARK_COLOR, "width": 2}},
                       margin={"l": 10, "r": 10, "t": 30, "b": 10},
                       legend={"orientation": "h", "y": 1.02, "x": 0, "yanchor": "bottom"})
-    fig.update_xaxes(rangebreaks=[{"bounds": ["sat", "mon"]}])
+    breaks = [{"bounds": ["sat", "mon"]}]
+    if intraday_nse:                           # hide nights: NSE trades 09:15-15:30 IST (index must be IST)
+        breaks.append({"bounds": [15.5, 9.25], "pattern": "hour"})
+    fig.update_xaxes(rangebreaks=breaks)
     fig.update_yaxes(title_text="Price", row=1, col=1)
     fig.update_yaxes(title_text="Volume", row=2, col=1)
     fig.update_yaxes(title_text="RSI", range=[0, 100], row=3, col=1)

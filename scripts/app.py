@@ -97,9 +97,23 @@ def load_fundamentals(ticker: str, file_bytes: bytes | None, file_name: str | No
     return load_statements(ticker, file_bytes, file_name)
 
 
-def normalise_ticker(raw: str) -> str:
+CURRENCY_SIGNS = {"INR": "₹", "USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥", "CNY": "¥", "HKD": "HK$"}
+
+
+def currency_sign(code: str | None) -> str:
+    return CURRENCY_SIGNS.get((code or "").upper(), code or "")
+
+
+MARKETS = {"India (NSE)": ".NS", "India (BSE)": ".BO", "Global (as typed: AAPL, 7203.T)": ""}
+
+
+def normalise_ticker(raw: str, market: str = "India (NSE)") -> str:
+    """A bare symbol gets the chosen market's Yahoo suffix; anything with a suffix, '=' (currency pairs)
+    or '^' (indices) is used as typed."""
     t = raw.strip().upper()
-    return t if ("." in t or "=" in t or t.startswith("^") or not t) else f"{t}.NS"   # "=X": currency pairs
+    if "." in t or "=" in t or t.startswith("^") or not t:
+        return t
+    return f"{t}{MARKETS.get(market, '.NS')}"
 
 
 def show_rules(title: str, rules: list[dict]) -> None:
@@ -688,7 +702,7 @@ def real_trades_section() -> None:
     with st.expander("Type a fill yourself (any broker)"):
         with st.form("live_fill", clear_on_submit=True):
             f1, f2, f3, f4 = st.columns(4)
-            sym = f1.text_input("Symbol", placeholder="TCS")
+            sym = f1.text_input("Symbol", placeholder="TCS", key="live_fill_symbol")
             side = f2.selectbox("Side", ["BUY", "SELL"])
             qty = f3.number_input("Quantity", min_value=0.0, step=1.0)
             price = f4.number_input("Price ₹", min_value=0.0, step=0.05)
@@ -1052,8 +1066,10 @@ def scanner_tab() -> None:
     interval = c2.selectbox("Candles", ["15m", "5m", "1h", "1d"], key="scan_interval")
     tickers = universes[pick]
     if pick == "Type my own":
-        raw = st.text_input("Symbols, comma-separated", placeholder="TCS.NS, INFY, USDINR=X", key="scan_own")
-        tickers = [normalise_ticker(t) for t in raw.split(",") if t.strip()]
+        o1, o2 = st.columns([3, 2])
+        raw = o1.text_input("Symbols, comma-separated", placeholder="TCS, INFY.NS, AAPL, USDINR=X", key="scan_own")
+        own_market = o2.selectbox("Market for bare symbols", list(MARKETS), key="scan_market")
+        tickers = [normalise_ticker(t, own_market) for t in raw.split(",") if t.strip()]
     if not tickers:
         st.info("Nothing to scan: add stocks to your watchlist (Alerts tab) or pick another list.")
         return
@@ -1086,8 +1102,9 @@ def next_candle_section() -> None:
     """Measure whether simple rules guessed the next candle's direction in real past data."""
     with st.expander("🎲 Does RSI / SMA predict the next candle? (test on real past data)"):
         st.caption("Each rule guesses up or down for the next candle using only candles up to now; FinTray counts "
-                   "how often it was right. Rupee currency pairs are what Indians may trade legally (NSE currency "
-                   "futures and options, through a SEBI-registered broker). Apps like Olymp Trade or XM are not.")
+                   "how often it was right. Rupee currency pairs on NSE are, under the RBI's 2024 rules, for hedging "
+                   "a real currency exposure; check with your broker before trading them. Offshore apps like Olymp "
+                   "Trade or XM are not allowed for Indians.")
         chart = st.session_state.get("chart_ticker")
         choices = ([f"Chart's stock ({chart})"] if chart else []) + list(next_candle.INR_PAIRS) + ["Nifty 50"]
         c1, c2, c3 = st.columns(3)
@@ -1124,10 +1141,11 @@ def next_candle_section() -> None:
 
 
 def chart_tab() -> None:
-    c1, c0, c2 = st.columns([3, 1, 1])
-    raw = c1.text_input("NSE symbol", value=st.session_state.get("chart_ticker", "RELIANCE.NS"), key="chart_raw",
-                        help="Add .NS for NSE (e.g. ITC.NS) or .BO for BSE. A bare symbol gets .NS. "
-                             "Currency pairs: USDINR=X, EURINR=X.")
+    c1, cm, c0, c2 = st.columns([3, 2, 1, 1])
+    raw = c1.text_input("Symbol", value=st.session_state.get("chart_ticker", "RELIANCE.NS"), key="chart_raw",
+                        help="e.g. RELIANCE, ITC.NS, AAPL, 7203.T (Toyota), USDINR=X. A symbol without a suffix "
+                             "gets the market chosen next to it.")
+    market = cm.selectbox("Market for a bare symbol", list(MARKETS), key="chart_market")
     interval = c0.selectbox("Candles", CHART_INTERVALS, key="chart_interval",
                             help="Buy/sell conditions, the backtest and the trade plan always use daily candles. "
                                  "The chart, regime and support/resistance use the candles you pick here.")
@@ -1141,7 +1159,7 @@ def chart_tab() -> None:
         cost = b4.number_input("Cost per side %", 0.0, 1.0, DEFAULT_COST_PER_SIDE * 100, 0.05,
                                help="STT, brokerage, charges and slippage, per buy and per sell.")
     if clicked:
-        st.session_state["chart_ticker"] = normalise_ticker(raw)
+        st.session_state["chart_ticker"] = normalise_ticker(raw, market)
     ticker = st.session_state.get("chart_ticker")
     if not ticker:
         st.info("Type an NSE symbol and press Analyze.")
@@ -1159,7 +1177,13 @@ def chart_tab() -> None:
     result = backtest(bars, entry_score=entry, exit_score=exit_, max_hold=hold, cost_per_side=cost / 100)
 
     st.subheader(f"{hist.ticker} · {hist.freshness()} · {hist.currency or ''}")
-    summary_section(hist.ticker, float(bars["Close"].iloc[-1]), result, cost / 100)
+    inr = (hist.currency or "INR").upper() == "INR"
+    if inr:
+        summary_section(hist.ticker, float(bars["Close"].iloc[-1]), result, cost / 100)
+    else:
+        st.info(f"Prices are in {hist.currency} {currency_sign(hist.currency)}. Signals, regime, levels, patterns and "
+                "the backtest work as for Indian stocks. The trade plan, paper trading and orders are in rupees for "
+                "your Indian account, so they are shown only for ₹ symbols.")
     if not sig["reliable"]:
         st.warning(sig["reason"])
     if sig["buy_score"] is not None:
@@ -1187,10 +1211,12 @@ def chart_tab() -> None:
     recent_patterns = patterns_mod.latest(chart_bars, within=30)
 
     intraday = interval != "1d"
-    plan = trade_plan_section(chart_bars if intraday else bars, cost / 100, interval)
+    plan = trade_plan_section(chart_bars if intraday else bars, cost / 100, interval) if inr else None
     checklist_section(hist.ticker, plan, bars, chart_bars, interval, cost / 100)
     real_order_section(hist.ticker, plan, interval, cost / 100)
-    if intraday:
+    if not inr:
+        pass
+    elif intraday:
         paper_trade_section(hist.ticker, sig, plan, float(chart_bars["Close"].iloc[-1]), cost / 100, interval)
     else:
         log_decision_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)

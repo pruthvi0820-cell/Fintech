@@ -549,7 +549,7 @@ def test_real_trades_section_add_fills_and_stop_banner(app):
     assert any("No real trades yet" in i.value for i in app.info)
 
     def fill(sym, side, qty, price, hh, mm):
-        app.text_input[[x.label for x in app.text_input].index("Symbol")].set_value(sym)
+        app.text_input(key="live_fill_symbol").set_value(sym)
         app.selectbox[[x.label for x in app.selectbox].index("Side")].set_value(side)
         app.number_input[[x.label for x in app.number_input].index("Quantity")].set_value(qty)
         app.number_input[[x.label for x in app.number_input].index("Price ₹")].set_value(price)
@@ -614,3 +614,26 @@ def test_scanned_tax_news_shows_in_the_alerts_tab(app, monkeypatch):
     button(app, "Scan news now").click().run()
     assert not app.exception
     assert any("Possible tax-rule news (SEBI" in m.value for m in app.markdown)
+
+
+def test_global_symbol_keeps_its_name_and_skips_rupee_tools(app, monkeypatch):
+    def usd_history(ticker, period="2y", interval="1d"):
+        h = fake_history(ticker, period, interval)
+        return market_data.PriceHistory(h.ticker, h.bars, "USD", h.source, h.fetched_at, h.last_bar_at)
+    monkeypatch.setattr(market_data, "fetch_history", usd_history)
+    app.run()
+    app.text_input(key="chart_raw").set_value("aapl")
+    app.selectbox(key="chart_market").set_value("Global (as typed: AAPL, 7203.T)")
+    button(app, "Analyze").click().run()
+    assert not app.exception and app.session_state["chart_ticker"] == "AAPL"
+    assert any("Prices are in USD $" in i.value for i in app.info)
+    assert not any(h.value.startswith("Trade plan") for h in app.subheader)
+    assert any(m.label == "Buy conditions met" for m in app.metric)            # the analysis still runs
+
+
+def test_bse_market_suffix(app):
+    app.run()
+    app.text_input(key="chart_raw").set_value("itc")
+    app.selectbox(key="chart_market").set_value("India (BSE)")
+    button(app, "Analyze").click().run()
+    assert app.session_state["chart_ticker"] == "ITC.BO"

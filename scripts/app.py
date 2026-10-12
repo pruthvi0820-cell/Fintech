@@ -19,7 +19,7 @@ from fin_agent.analysis.backtest import DEFAULT_COST_PER_SIDE, backtest
 from fin_agent.analysis.risk import DEFAULT_RISK_PCT, PlanError, plan_trade
 from fin_agent.analysis.signals import latest_signals
 from fin_agent.analysis.summary import minimum_to_buy, rate_text, stock_records, your_record
-from fin_agent.charts import candle_chart
+from fin_agent.charts import DRAW_CONFIG, candle_chart
 from fin_agent.config import Settings
 from fin_agent.data import market_data
 from fin_agent.llm import factory
@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo
 
 from fin_agent.data.fundamentals import FundamentalsError, Statements
 from fin_agent.analysis import alerts as alerts_mod
+from fin_agent.analysis import chart_marks as marks_mod
 from fin_agent.analysis import events as events_mod
 from fin_agent.data import tax_rules
 from fin_agent.data.news import collect_news
@@ -374,7 +375,7 @@ def alerts_tab(portfolio) -> None:
         store = None
     with st.spinner("Checking your stocks…"):
         alerts, tickers = gather_alerts(watch, held, today, safe_bars, events=store, paper=get_paper(),
-                                        journal=get_journal())
+                                        journal=get_journal(), marks=marks_mod.load_marks())
     if not tickers:
         st.info("Add stocks to your watchlist (above) or upload your holdings in the sidebar to get signal alerts.")
     if not alerts:
@@ -563,6 +564,45 @@ def journal_tab() -> None:
             st.rerun()
 
 
+def marks_section(ticker: str, last_close: float, marks: list) -> None:
+    """Saved price marks: drawn on the chart, and alerts (page and Telegram) when the price crosses one."""
+    with st.expander(f"✏️ My marks on {ticker} ({len(marks)})"):
+        st.caption("Save a price you care about (support, resistance, your entry). It stays on the chart, and the "
+                   f"Alerts tab and Telegram tell you when the close crosses it or is within {marks_mod.NEAR:.0%}.")
+        c1, c2, c3 = st.columns([1, 2, 1])
+        price = c1.number_input("Price", min_value=0.01, value=round(last_close, 2), step=1.0,
+                                key=f"mark_price_{ticker}")
+        label = c2.text_input("Label", placeholder="e.g. support, resistance, breakout", key="mark_label",
+                              max_chars=marks_mod.MAX_LABEL_CHARS)
+        c3.write("")
+        if c3.button("Save mark", width="stretch"):
+            try:
+                m = marks_mod.add_mark(ticker, price, label)
+            except (marks_mod.MarkError, OSError) as exc:
+                st.error(str(exc))
+            else:
+                st.session_state["mark_msg"] = f"Saved mark '{m.label}' at {m.price:,.2f}."
+                st.rerun()
+        if msg := st.session_state.pop("mark_msg", None):
+            st.success(msg)
+        if marks:
+            st.dataframe(pd.DataFrame([{"Price": m.price, "Label": m.label,
+                                        "From last close": f"{(m.price / last_close - 1) * 100:+.1f}%"}
+                                       for m in marks]), hide_index=True)
+            d1, d2 = st.columns([2, 1])
+            pick = d1.selectbox("Delete mark", [f"{m.price:,.2f} · {m.label}" for m in marks], key="mark_delete")
+            d2.write("")
+            if d2.button("Delete", width="stretch"):
+                chosen = marks[[f"{m.price:,.2f} · {m.label}" for m in marks].index(pick)]
+                try:
+                    marks_mod.delete_mark(ticker, chosen.price)
+                except OSError as exc:
+                    st.error(str(exc))
+                else:
+                    st.session_state["mark_msg"] = f"Deleted mark at {chosen.price:,.2f}."
+                    st.rerun()
+
+
 def chart_tab() -> None:
     c1, c2 = st.columns([3, 1])
     raw = c1.text_input("NSE symbol", value=st.session_state.get("chart_ticker", "RELIANCE.NS"), key="chart_raw",
@@ -613,13 +653,17 @@ def chart_tab() -> None:
     plan = trade_plan_section(bars, cost / 100)
     log_decision_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
     paper_trade_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
+    marks = marks_mod.load_marks().get(hist.ticker, [])
     try:
-        fig = candle_chart(bars, f"{hist.ticker} — daily candles", result, plan)
+        fig = candle_chart(bars, f"{hist.ticker} — daily candles", result, plan, marks)
     except ImportError:
         st.error('The chart library is not installed. Stop the page (Ctrl+C) and run:  pip install -e ".[app]"  '
                  "then start it again. Everything else on this page works without it.")
     else:
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, width="stretch", config=DRAW_CONFIG)
+        st.caption("✏️ Draw with the tools at the top right of the chart (line, freehand, box, eraser). Drawings "
+                   "disappear when the page reloads; to keep a level, save it as a mark below.")
+    marks_section(hist.ticker, float(bars["Close"].iloc[-1]), marks)
 
     st.subheader("How these rules did on this stock (backtest)")
     st.caption(f"{result.start} to {result.end}. Buy at the next day's open when at least {entry} buy "

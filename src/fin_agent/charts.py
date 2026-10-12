@@ -15,8 +15,15 @@ from fin_agent.analysis.signals import RSI_MOMENTUM, signal_frame
 from fin_agent.analysis.indicators import RSI_OVERBOUGHT, RSI_OVERSOLD, sma
 
 
+# Drawing tools in the chart's toolbar (pass as st.plotly_chart(fig, config=DRAW_CONFIG)).
+# Drawings live in the browser only and disappear on reload; saved marks (chart_marks.py) persist.
+DRAW_CONFIG = {"modeBarButtonsToAdd": ["drawline", "drawopenpath", "drawrect", "eraseshape"],
+               "displaylogo": False}
+MARK_COLOR = "#c51b7d"
+
+
 def candle_chart(bars: pd.DataFrame, title: str, result: BacktestResult | None = None,
-                 plan: TradePlan | None = None) -> Any:
+                 plan: TradePlan | None = None, marks: list | None = None) -> Any:
     from plotly.subplots import make_subplots
     import plotly.graph_objects as go
 
@@ -51,6 +58,11 @@ def candle_chart(bars: pd.DataFrame, title: str, result: BacktestResult | None =
                           annotation_text=f"{label} {level:,.2f}", annotation_position="top left",
                           annotation_font_color=color)
 
+    for m in marks or []:
+        fig.add_hline(y=m.price, line={"width": 1.3, "dash": "dot", "color": MARK_COLOR}, row=1, col=1,
+                      annotation_text=f"✏️ {m.label} {m.price:,.2f}", annotation_position="bottom right",
+                      annotation_font_color=MARK_COLOR)
+
     fig.add_trace(go.Bar(x=x, y=bars["Volume"], name="Volume", marker_color="#9aa5b1",
                          showlegend=False), row=2, col=1)
     fig.add_trace(go.Scatter(x=x, y=f["rsi14"], name="RSI 14", line={"width": 1.4, "color": "#444"},
@@ -59,6 +71,7 @@ def candle_chart(bars: pd.DataFrame, title: str, result: BacktestResult | None =
         fig.add_hline(y=level, line={"width": 1, "dash": dash, "color": "#999"}, row=3, col=1)
 
     fig.update_layout(height=720, xaxis_rangeslider_visible=False, meta={"title": title},
+                      newshape={"line": {"color": MARK_COLOR, "width": 2}},
                       margin={"l": 10, "r": 10, "t": 30, "b": 10},
                       legend={"orientation": "h", "y": 1.02, "x": 0, "yanchor": "bottom"})
     fig.update_xaxes(rangebreaks=[{"bounds": ["sat", "mon"]}])

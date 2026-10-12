@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 
 from fin_agent import config  # noqa: F401  (loads .env, where the Telegram token lives)
 from fin_agent.analysis.alerts import Alert, load_watchlist, watchlist_path
+from fin_agent.analysis.chart_marks import load_marks
 from fin_agent.analysis.events import EventStore, default_path as events_path, detect_events
 from fin_agent.data import market_data
 from fin_agent.data.news import collect_news
@@ -94,7 +95,8 @@ def run_once(token: str, chat_id: str, scan_news: bool = True, now: datetime | N
         items, _ = collect_news(get_sources(), hours=24, max_items=300)
         store.save(detect_events(items))
     alerts, _ = gather_alerts(load_watchlist(), set(), now.astimezone(IST).date(), bars, events=store,
-                              paper=PaperBook(paper_path()), journal=Journal(journal_path()), news=items)
+                              paper=PaperBook(paper_path()), journal=Journal(journal_path()), news=items,
+                              marks=load_marks())
     path = sent_path()
     sent = load_sent(path, now)
     fresh = new_alerts(alerts, sent)

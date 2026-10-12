@@ -379,3 +379,16 @@ def test_library_panel_lists_documents_and_the_chat_uses_them(app, tmp_path):
     assert not app.exception
     shown = " ".join(m.value for m in app.markdown)
     assert "Given library passages lib #1" in shown and "cites no library passage" in shown
+
+
+def test_chart_marks_can_be_saved_and_deleted(app):
+    app.run()
+    button(app, "Analyze").click().run()
+    assert any(e.label == "✏️ My marks on RELIANCE.NS (0)" for e in app.expander)
+    app.text_input(key="mark_label").set_value("resistance").run()
+    button(app, "Save mark").click().run()
+    assert not app.exception
+    assert any("Saved mark 'resistance'" in s.value for s in app.success)
+    assert any(e.label == "✏️ My marks on RELIANCE.NS (1)" for e in app.expander)
+    button(app, "Delete").click().run()
+    assert any("Deleted mark" in s.value for s in app.success)

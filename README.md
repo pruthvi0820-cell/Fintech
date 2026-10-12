@@ -86,6 +86,8 @@ streamlit run scripts/app.py        # opens http://localhost:8501
 
 `.streamlit/config.toml` keeps the page private to this computer (`address = "localhost"`) and turns off Streamlit's usage statistics. Start it from the project folder so the file is picked up.
 
+**✏️ Marking the chart** (📈 Chart & signals): the chart's toolbar (top right) has drawing tools: straight line, freehand, box and eraser. Drawings are temporary (gone on reload). To keep a price level, save it under **✏️ My marks**: it is drawn on the chart every time, and the Alerts tab and Telegram tell you when the close crosses it (🔴) or is within 1% (🔵). Saved in `journal/chart_marks.json`.
+
 **🔔 Alerts** (the first tab):
 - One list of what needs a look, most important first: your watchlist and holdings meeting 4+ of 5 buy conditions, holdings meeting 4+ sell conditions, saved events (Events tab) from the last 3 days that link to them, paper trades closed in the last 7 days or within 2% of their stop, and journal lots turning long-term within 30 days.
 - A watchlist editor (saved in `journal/watchlist.json`). Facts with their source, never instructions.

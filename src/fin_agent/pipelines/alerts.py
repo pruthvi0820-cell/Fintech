@@ -13,6 +13,7 @@ from typing import Callable
 import pandas as pd
 
 from fin_agent.analysis import alerts as rules
+from fin_agent.analysis.chart_marks import Mark, mark_alerts
 from fin_agent.analysis.events import EventStore
 from fin_agent.analysis.signals import latest_signals
 from fin_agent.portfolio.journal import Journal
@@ -24,7 +25,8 @@ BarsLoader = Callable[[str], "pd.DataFrame | None"]
 
 def gather_alerts(watchlist: list[str], held: set[str], today: date, bars: BarsLoader, *,
                   events: EventStore | None = None, paper: PaperBook | None = None,
-                  journal: Journal | None = None, news: list | None = None) -> tuple[list[rules.Alert], list[str]]:
+                  journal: Journal | None = None, news: list | None = None,
+                  marks: dict[str, list[Mark]] | None = None) -> tuple[list[rules.Alert], list[str]]:
     """(alerts sorted most important first, the tickers whose signals were checked)."""
     tickers = sorted(set(watchlist) | held)
     signals = {}
@@ -52,4 +54,6 @@ def gather_alerts(watchlist: list[str], held: set[str], today: date, bars: BarsL
         alerts += rules.tax_alerts(lot_rows(build_lots(trades_from_journal(journal.entries())), {}, today))
     if news:
         alerts += rules.tax_news_alerts(news, today)
+    if marks:                    # your chart marks: checked for every marked stock, watched or not
+        alerts += mark_alerts(marks, {tk: bars(tk) for tk in marks})
     return rules.sort_alerts(alerts), tickers

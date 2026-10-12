@@ -11,6 +11,7 @@ Sources of alerts:
 - lots that turn long-term soon (lower tax), from the holding tracker
 - news that may change a tax rule (capital gains, STT, Finance Bill...): a cue to check and update
   the rules and the user's /store tax notes, never an automatic change
+- the user's own chart marks (analysis/chart_marks.py), crossed or near
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ OFFICIAL_CATEGORIES = frozenset({"regulator", "government", "central bank"})
 @dataclass(frozen=True)
 class Alert:
     level: str               # "high" | "medium" | "info"
-    kind: str                # "signal" | "event" | "paper" | "tax"
+    kind: str                # "signal" | "event" | "paper" | "tax" | "tax-news" | "mark"
     ticker: str
     text: str
 

@@ -30,6 +30,7 @@ from fin_agent.data.fundamentals import FundamentalsError, Statements
 from fin_agent.analysis import alerts as alerts_mod
 from fin_agent.broker import angelone, kite_orders, zerodha
 from fin_agent.analysis import chart_marks as marks_mod
+from fin_agent.analysis import intraday_backtest as ibt
 from fin_agent.analysis import next_candle
 from fin_agent.analysis import risk_engine
 from fin_agent.analysis.levels import find_levels
@@ -1137,6 +1138,58 @@ def scanner_tab() -> None:
                "before any (paper) trade.")
 
 
+def intraday_backtest_section() -> None:
+    """Test an intraday strategy on the chart's symbol, with paper-trading exit rules."""
+    with st.expander("⚡ Intraday strategy backtest (5m / 15m / 1h candles)"):
+        ticker = st.session_state.get("chart_ticker")
+        if not ticker:
+            st.info("Open a symbol in the chart above first.")
+            return
+        st.caption("Signal on a candle's close, entry at the next candle's open, stop and target from ATR, stop "
+                   "first if a candle touches both, no entries after 15:00 and square-off at 15:20 (NSE), one trade at "
+                   "a time, costs included. Compared with a no-skill baseline: entering at every allowed candle with the same "
+                   "exits.")
+        c1, c2 = st.columns([2, 1])
+        strategy = c1.selectbox("Strategy", list(ibt.STRATEGIES), format_func=lambda k: ibt.STRATEGIES[k][0],
+                                key="ibt_strategy")
+        interval = c2.selectbox("Candles", ["15m", "5m", "1h"], key="ibt_interval",
+                                help="Yahoo keeps about 60 days of 5m/15m candles and about 2 years of 1h.")
+        c3, c4, c5 = st.columns(3)
+        stop_atr = c3.number_input("Stop (× ATR)", 0.5, 5.0, 1.5, 0.25, key="ibt_stop")
+        rr = c4.number_input("Target (× risk)", 0.5, 5.0, 2.0, 0.25, key="ibt_rr")
+        cost = c5.number_input("Cost per side %", 0.0, 0.5, 0.05, 0.01, key="ibt_cost",
+                               help="Intraday brokerage, STT, charges and slippage per buy and per sell.")
+        if not st.button("Run intraday backtest"):
+            return
+        try:
+            with st.spinner(f"Fetching {interval} candles for {ticker}…"):
+                bars = load_candles(ticker, interval)
+            out = ibt.run(bars, strategy, stop_atr, rr, cost / 100,
+                          nse_hours=ticker.endswith((".NS", ".BO")) or ticker.startswith("^NSE"))
+        except (market_data.MarketDataError, ValueError) as exc:
+            st.error(str(exc))
+            return
+        s, b = out["result"], out["baseline"]
+        fmt = lambda x, f: "–" if x is None else format(x, f)   # noqa: E731
+        k = st.columns(5)
+        k[0].metric("Trades", s["trades"], help=f"About {fmt(s.get('per_day'), '.1f')} a day")
+        k[1].metric("Win rate", fmt(None if s["win_rate"] is None else s["win_rate"] * 100, ".0f") + "%")
+        k[2].metric("Average per trade", fmt(s["avg_r"], "+.2f") + "R",
+                    help="R = the amount risked per trade. +0.2R means you made 20% of your risk on average.")
+        k[3].metric("Total", fmt(s["total_r"], "+.1f") + "R")
+        k[4].metric("Worst drop", fmt(s["max_dd_r"], ".1f") + "R")
+        st.markdown(f"**{esc(out['verdict'])}**")
+        st.caption(f"Average {fmt(s['avg_r'], '+.2f')}R ± {fmt(None if s['se_r'] is None else 2 * s['se_r'], '.2f')} "
+                   f"(luck range) vs no-skill baseline {fmt(b['avg_r'], '+.2f')}R over {b['trades']} trades. "
+                   f"{bars.index[0]:%d %b} to {bars.index[-1]:%d %b %Y}. Past results describe the past only.")
+        if out["trades"]:
+            st.dataframe(pd.DataFrame([{
+                "Entry": t.entry_time.tz_convert("Asia/Kolkata").strftime("%d %b %H:%M"),
+                "Exit": t.exit_time.tz_convert("Asia/Kolkata").strftime("%d %b %H:%M"),
+                "Entry price": round(t.entry, 2), "Exit price": round(t.exit, 2), "Why": t.reason,
+                "R": round(t.r, 2)} for t in out["trades"]]), hide_index=True, width="stretch")
+
+
 def next_candle_section() -> None:
     """Measure whether simple rules guessed the next candle's direction in real past data."""
     with st.expander("🎲 Does RSI / SMA predict the next candle? (test on real past data)"):
@@ -1637,6 +1690,7 @@ with tab_world:
 
 with tab_chart:
     chart_tab()
+    intraday_backtest_section()
     next_candle_section()
 
 with tab_scan:

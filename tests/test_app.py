@@ -638,3 +638,13 @@ def test_bse_market_suffix(app):
     app.selectbox(key="chart_market").set_value("India (BSE)")
     button(app, "Analyze").click().run()
     assert app.session_state["chart_ticker"] == "ITC.BO"
+
+
+def test_intraday_backtest_section_runs(app):
+    app.run()
+    button(app, "Analyze").click().run()
+    next(b for b in app.button if b.label == "Run intraday backtest").click().run()
+    assert not app.exception
+    labels = [m.label for m in app.metric]
+    assert {"Trades", "Average per trade", "Worst drop"} <= set(labels)
+    assert any("no-skill baseline" in c.value for c in app.caption)

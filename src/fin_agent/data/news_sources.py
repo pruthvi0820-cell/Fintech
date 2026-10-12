@@ -6,8 +6,11 @@ as stale config rather than as silent emptiness. Re-check feeds when a digest lo
 
 from __future__ import annotations
 
+import json
+import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -119,6 +122,34 @@ TICKER_ALIASES: dict[str, list[str]] = {
 }
 
 
+def local_verified_path() -> Path:
+    """Feeds switched on by `news_digest.py --check-sources --enable-working` on this computer."""
+    base = os.getenv("FIN_AGENT_JOURNAL_PATH")
+    folder = Path(base).parent if base else Path.cwd() / "journal"
+    return folder / "feeds_verified.json"
+
+
+def load_local_verified(path: Path | None = None) -> dict[str, str]:
+    try:
+        raw = json.loads((path or local_verified_path()).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {str(k): str(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+
+
+def save_local_verified(entries: dict[str, str], path: Path | None = None) -> None:
+    path = path or local_verified_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(dict(sorted(entries.items())), indent=2), encoding="utf-8")
+
+
+def _with_local(src: FeedSource, local: dict[str, str]) -> FeedSource:
+    """A disabled feed seen working on this computer is switched on, with that date as `verified`."""
+    if not src.enabled and src.name in local:
+        return replace(src, enabled=True, verified=local[src.name])
+    return src
+
+
 def get_sources(names: list[str] | None = None, include_disabled: bool = False) -> list[FeedSource]:
     if names:
         wanted = {n.lower() for n in names}
@@ -127,4 +158,6 @@ def get_sources(names: list[str] | None = None, include_disabled: bool = False) 
         if missing:
             raise ValueError(f"Unknown source(s): {sorted(missing)}. Known: {[s.name for s in SOURCES]}")
         return picked
-    return [s for s in SOURCES if include_disabled or s.enabled]
+    local = load_local_verified()
+    sources = [_with_local(s, local) for s in SOURCES]
+    return [s for s in sources if include_disabled or s.enabled]

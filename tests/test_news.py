@@ -120,3 +120,50 @@ def test_check_sources_reports_each_feed(monkeypatch, capsys):
     assert "[OK  ] on  US Federal Reserve" in out and "5 items, newest 2026-10-09" in out
     assert "[FAIL] on  Bank of Japan" in out and "ConnectionError: refused" in out
     assert f"{len(SOURCES) - 1} of {len(SOURCES)} sources work" in out
+
+
+def test_feeds_seen_working_on_this_computer_are_switched_on(tmp_path, monkeypatch):
+    from fin_agent.data.news_sources import load_local_verified, save_local_verified
+    monkeypatch.setenv("FIN_AGENT_JOURNAL_PATH", str(tmp_path / "journal.sqlite3"))
+    assert "CNBC World Markets" not in {s.name for s in get_sources()}
+    save_local_verified({"CNBC World Markets": "2026-10-12"})
+    on = {s.name: s for s in get_sources()}
+    assert on["CNBC World Markets"].enabled and on["CNBC World Markets"].verified == "2026-10-12"
+    assert load_local_verified() == {"CNBC World Markets": "2026-10-12"}
+    (tmp_path / "feeds_verified.json").write_text("garbage")
+    assert "CNBC World Markets" not in {s.name for s in get_sources()}      # damaged file: code defaults
+
+
+def test_check_sources_enable_working_switches_feeds(monkeypatch, capsys, tmp_path):
+    import importlib.util
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from fin_agent.data import news as news_mod
+    from fin_agent.data.news import NewsItem, SourceStatus
+    from fin_agent.data.news_sources import load_local_verified, save_local_verified
+
+    monkeypatch.setenv("FIN_AGENT_JOURNAL_PATH", str(tmp_path / "journal.sqlite3"))
+    save_local_verified({"Yahoo Finance": "2026-10-01"})            # worked before, broken now
+
+    def fake_collect(sources, **kw):
+        src = sources[0]
+        if src.name == "Yahoo Finance":
+            return [], [SourceStatus(src.name, ok=False, error="HTTPError: 404")]
+        dated = src.name not in ("MarketWatch Top Stories", "PIB")
+        item = NewsItem(src.name, src.category, "t", "https://x",
+                        datetime(2026, 10, 9, tzinfo=timezone.utc) if dated else None)
+        return [item], [SourceStatus(src.name, ok=True, entries=5, kept=1)]
+
+    monkeypatch.setattr(news_mod, "collect_news", fake_collect)
+    path = Path(__file__).resolve().parent.parent / "scripts" / "news_digest.py"
+    spec = importlib.util.spec_from_file_location("news_digest_script2", path)
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    assert script.check_sources(enable_working=True) == 0
+    out = capsys.readouterr().out
+    local = load_local_verified()
+    assert {"CNBC World Markets", "CNBC Economy", "Moneycontrol Latest"} <= set(local)
+    assert "MarketWatch Top Stories" not in local and "PIB" not in local       # no dates: stays off
+    assert "Yahoo Finance" not in local and "switched OFF Yahoo Finance" in out
+    assert "switched ON  CNBC World Markets" in out and "[OK  ] on  CNBC World Markets" in out

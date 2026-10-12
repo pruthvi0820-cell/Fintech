@@ -21,10 +21,18 @@ from fin_agent.pipelines.news import build_news_digest
 REPORTS_DIR = Path(__file__).resolve().parent.parent / "reports"
 
 
-def check_sources() -> int:
-    """One line per feed: works or not, how many items, and the newest item's date."""
+def check_sources(enable_working: bool = False) -> int:
+    """One line per feed: works or not, how many items, and the newest item's date.
+
+    With enable_working, feeds that are off in the code but returned DATED items here are switched
+    on for this computer (journal/feeds_verified.json); ones that stopped working are switched off.
+    """
+    from datetime import date
+
     from fin_agent.data.news import collect_news
-    working = 0
+    from fin_agent.data.news_sources import load_local_verified, save_local_verified
+    local = load_local_verified()
+    working, changed = 0, []
     for src in SOURCES:
         items, statuses = collect_news([src], hours=24 * 365 * 5, max_items=1000)
         st = statuses[0]
@@ -33,8 +41,22 @@ def check_sources() -> int:
         working += state == "OK  "
         detail = (f"{st.entries} items, newest {newest:%Y-%m-%d}" if newest else f"{st.entries} items, no dates") \
             if st.ok else st.error
-        print(f"[{state}] {'on ' if src.enabled else 'off'} {src.name:24} {detail}")
+        on = src.enabled or src.name in local
+        if enable_working and not src.enabled:
+            if state == "OK  " and newest is not None:
+                if src.name not in local:
+                    changed.append(f"switched ON  {src.name}")
+                local[src.name], on = date.today().isoformat(), True
+            elif src.name in local:
+                del local[src.name]
+                changed.append(f"switched OFF {src.name} (not working or no dates)")
+                on = False
+        print(f"[{state}] {'on ' if on else 'off'} {src.name:24} {detail}")
     print(f"{working} of {len(SOURCES)} sources work from this computer.")
+    if enable_working:
+        save_local_verified(local)
+        for line in changed or ["No changes: nothing new to switch on or off."]:
+            print(line)
     return 0 if working else 1
 
 
@@ -53,6 +75,8 @@ def main() -> int:
     p.add_argument("--list-sources", action="store_true")
     p.add_argument("--check-sources", action="store_true",
                    help="fetch every source (also disabled ones) and report whether it works")
+    p.add_argument("--enable-working", action="store_true",
+                   help="with --check-sources: switch on, for this computer, off feeds that return dated items")
     args = p.parse_args()
 
     if args.list_sources:
@@ -61,7 +85,7 @@ def main() -> int:
             print(f"[{flag}] {s.name:24} {s.category:12} {s.region:14} verified={s.verified or '-':10} {s.notes}")
         return 0
     if args.check_sources:
-        return check_sources()
+        return check_sources(enable_working=args.enable_working)
 
     keywords: list[str] = []
     if args.ticker:

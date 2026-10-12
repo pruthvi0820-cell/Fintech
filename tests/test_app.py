@@ -557,3 +557,35 @@ def test_real_trades_section_add_fills_and_stop_banner(app):
     assert any("STOP TRADING TODAY" in e.value for e in app.error)
     table = next(d.value for d in app.dataframe if "direction" in d.value.columns)
     assert len(table) == 2 and list(table["direction"]) == ["long", "long"]
+
+
+def test_real_order_section_is_off_by_default(app, monkeypatch):
+    monkeypatch.delenv("FIN_AGENT_LIVE_TRADING", raising=False)
+    app.run()
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    assert any(e.label.startswith("🟢 Place a real order") for e in app.expander)
+    assert any("Real orders are OFF" in c.value for c in app.caption)
+    assert not any(b.label == "Approve and send entry order" for b in app.button)
+
+
+def test_real_order_needs_capital_then_typed_approval(app, monkeypatch, tmp_path):
+    from fin_agent.broker import kite_orders
+    from fin_agent.portfolio import live_trades
+    monkeypatch.setenv("FIN_AGENT_LIVE_TRADING", "true")
+    app.run()
+    button(app, "Analyze").click().run()
+    assert any("Set your trading capital" in w.value for w in app.warning)
+    live_trades.save_capital(10_000_000)
+    sent = []
+    monkeypatch.setattr(kite_orders.ApprovalBook, "submit", lambda self, d, risk_ok, **kw: sent.append(d) or "OID1")
+    app.run()
+    shown = " ".join(m.value for m in app.markdown)
+    assert "**1. Entry:** BUY" in shown
+    app.text_input(key="order_typed_entry").set_value("BUY 1 WRONG").run()
+    entry_btn = next(b for b in app.button if b.label == "Approve and send entry order")
+    if entry_btn.disabled:                        # outside market hours the risk rules block it: also correct
+        assert any("Risk rules block this entry" in e.value for e in app.error)
+        return
+    entry_btn.click().run()
+    assert any("Not approved: type exactly" in e.value for e in app.error) and sent == []

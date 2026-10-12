@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 
 from fin_agent.data.fundamentals import FundamentalsError, Statements
 from fin_agent.analysis import alerts as alerts_mod
-from fin_agent.broker import zerodha
+from fin_agent.broker import kite_orders, zerodha
 from fin_agent.analysis import chart_marks as marks_mod
 from fin_agent.analysis import next_candle
 from fin_agent.analysis import risk_engine
@@ -908,6 +908,88 @@ def checklist_section(ticker: str, plan, daily: pd.DataFrame, chart: pd.DataFram
                         st.caption(footer)
 
 
+def real_order_section(ticker: str, plan, interval: str, cost_per_side: float) -> None:
+    """Step 7: a real Zerodha order, drafted from the plan, sent only after you type it to approve."""
+    if plan is None or not ticker.endswith(".NS"):
+        return
+    with st.expander("🟢 Place a real order (needs your typed approval)"):
+        if not kite_orders.live_enabled():
+            st.caption("Real orders are OFF. To allow them, add  FIN_AGENT_LIVE_TRADING=true  to .env and restart "
+                       "FinTray. Zerodha also requires a registered static IP for API orders (since April 2026); "
+                       "without one, Zerodha rejects the order and nothing is placed. Until then, place orders "
+                       "yourself in Kite and import them in the Journal tab.")
+            return
+        tz = ZoneInfo("Asia/Kolkata")
+        now = datetime.now(tz)
+        live = get_live()
+        capital = live_trades.load_capital()
+        if live is None or not capital:
+            st.warning("Set your trading capital in 📒 Journal → ⚡ Real trades first (the risk rules need it).")
+            return
+        c1, c2, c3, c4 = st.columns(4)
+        product = c1.selectbox("Product", list(kite_orders.PRODUCTS), index=0 if interval != "1d" else 1,
+                               help="MIS = intraday (closed by Zerodha around 15:20), CNC = delivery.")
+        qty = int(c2.number_input("Quantity", min_value=1, value=max(1, int(plan.shares)), step=1, key="order_qty"))
+        limit = c3.number_input("Limit price ₹", min_value=0.05, value=float(plan.entry), step=0.05, key="order_limit")
+        stop = c4.number_input("Stop-loss ₹", min_value=0.05, value=float(plan.stop), step=0.05, key="order_stop")
+        trips = live.round_trips()
+        verdict = risk_engine.check_trade(
+            ticker=ticker, entry=limit, stop=stop, target=plan.target, shares=qty, capital=capital,
+            cost_per_side=cost_per_side, day_results=live_trades.day_results(trips, now.date()),
+            trades_today=live_trades.trades_opened(trips, now.date()), rules=risk_engine.load_rules(today=now.date()),
+            now=now, intraday=product == "MIS")
+        try:
+            entry = kite_orders.draft_entry(ticker, qty, limit, product)
+            stop_draft = kite_orders.draft_stop(ticker, qty, stop, product)
+        except kite_orders.OrderError as exc:
+            st.error(str(exc))
+            return
+        if verdict.allowed:
+            st.success("Risk rules: all pass. " + " ".join(verdict.notes[-1:]))
+        else:
+            st.error("⛔ Risk rules block this entry: " + verdict.message())
+        st.markdown(f"**1. Entry:** {esc(entry.describe())}")
+        typed = st.text_input(f"To approve, type exactly:  {entry.confirmation()}", key="order_typed_entry")
+        if st.button("Approve and send entry order", disabled=not verdict.allowed):
+            book = kite_orders.ApprovalBook()
+            try:
+                book.approve(entry, typed)
+                oid = book.submit(entry, risk_ok=verdict.allowed)
+            except kite_orders.OrderError as exc:
+                st.error(str(exc))
+            else:
+                st.success(f"Entry order sent to Zerodha: order id {oid}. Check it in Kite. When it has FILLED, "
+                           "place the stop-loss below.")
+        st.markdown(f"**2. Stop-loss (after the entry fills):** {esc(stop_draft.describe())}")
+        typed_stop = st.text_input(f"To approve, type exactly:  {stop_draft.confirmation()}", key="order_typed_stop")
+        if st.button("Approve and send stop-loss order"):
+            book = kite_orders.ApprovalBook()
+            try:
+                book.approve(stop_draft, typed_stop)
+                oid = book.submit(stop_draft, risk_ok=None)
+            except kite_orders.OrderError as exc:
+                st.error(str(exc))
+            else:
+                st.success(f"Stop-loss order sent: order id {oid}.")
+        st.caption("Each approval works once, for this exact order, within 2 minutes. Limit and stop-limit orders "
+                   "only (no market orders). A stop-limit may not fill if price gaps through it: watch your position. "
+                   "Target: sell yourself in Kite, or set a GTT there. The AI cannot place orders.")
+        with st.form("cancel_order"):
+            oid = st.text_input("Cancel an open order: order id")
+            if st.form_submit_button("Cancel order") and oid.strip():
+                try:
+                    kite_orders.cancel(oid.strip())
+                except kite_orders.OrderError as exc:
+                    st.error(str(exc))
+                else:
+                    st.success(f"Cancel requested for {oid.strip()}.")
+        history = kite_orders.ApprovalBook().history()[:10]
+        if history:
+            st.dataframe(pd.DataFrame([{"When (UTC)": h["approved_at"][:19], "Order": h["typed"], "Status": h["status"],
+                                        "Order id": h["order_id"] or "", "Note": h["message"] or ""}
+                                       for h in history]), hide_index=True)
+
+
 def patterns_section(bars: pd.DataFrame, interval: str, recent: list) -> None:
     with st.expander(f"📐 Chart patterns on this symbol ({interval} candles), measured on its own history"):
         for pt in recent:
@@ -1089,6 +1171,7 @@ def chart_tab() -> None:
     intraday = interval != "1d"
     plan = trade_plan_section(chart_bars if intraday else bars, cost / 100, interval)
     checklist_section(hist.ticker, plan, bars, chart_bars, interval, cost / 100)
+    real_order_section(hist.ticker, plan, interval, cost / 100)
     if intraday:
         st.caption("Intraday plan: log the real trade in the 📒 Journal (or import it from Zerodha). Paper trading "
                    "checks exits on daily candles, so it is for swing trades only.")

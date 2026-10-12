@@ -157,3 +157,23 @@ def test_identical_fills_in_one_file_are_kept(book):
 def test_bad_tradebooks(book, data, msg):
     with pytest.raises(LiveTradeError, match=msg):
         book.import_tradebook(data)
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
+
+
+def test_screenshots(book, tmp_path, monkeypatch):
+    from fin_agent.portfolio import live_trades as lt
+    monkeypatch.setenv("FIN_AGENT_JOURNAL_PATH", str(tmp_path / "journal.sqlite3"))
+    assert lt.screenshot_for("manual:x") is None
+    path = lt.save_screenshot("manual:x", PNG)
+    assert path.suffix == ".png" and lt.screenshot_for("manual:x") == path
+    jpg = lt.save_screenshot("manual:x", b"\xff\xd8\xff" + b"\x00" * 10)        # a new one replaces it
+    assert lt.screenshot_for("manual:x") == jpg and not path.exists()
+    with pytest.raises(LiveTradeError, match="PNG or JPG"):
+        lt.save_screenshot("manual:x", b"<svg>")
+    with pytest.raises(LiveTradeError, match="empty"):
+        lt.save_screenshot("manual:x", b"")
+    monkeypatch.setattr(lt, "MAX_SCREENSHOT_BYTES", 10)
+    with pytest.raises(LiveTradeError, match="under"):
+        lt.save_screenshot("manual:x", PNG)

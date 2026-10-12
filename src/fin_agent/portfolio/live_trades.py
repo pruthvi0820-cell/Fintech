@@ -261,6 +261,40 @@ class LiveBook:
         return pair_fills(self.fills(), self.stops(), cost_per_side)
 
 
+MAX_SCREENSHOT_BYTES = 5_000_000
+_IMAGE_TYPES = {b"\x89PNG\r\n\x1a\n": ".png", b"\xff\xd8\xff": ".jpg"}
+
+
+def screenshot_dir() -> Path:
+    return default_path().parent / "screenshots"
+
+
+def _shot_stem(entry_fill: str) -> str:
+    return hashlib.sha1(entry_fill.encode()).hexdigest()[:16]
+
+
+def save_screenshot(entry_fill: str, data: bytes) -> Path:
+    """Attach a chart screenshot (PNG or JPG, checked by its first bytes) to a round trip."""
+    if not data:
+        raise LiveTradeError("The image is empty.")
+    if len(data) > MAX_SCREENSHOT_BYTES:
+        raise LiveTradeError(f"Keep screenshots under {MAX_SCREENSHOT_BYTES // 1_000_000} MB.")
+    ext = next((e for magic, e in _IMAGE_TYPES.items() if data.startswith(magic)), None)
+    if ext is None:
+        raise LiveTradeError("Upload a PNG or JPG image.")
+    folder = screenshot_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    for old in folder.glob(_shot_stem(entry_fill) + ".*"):
+        old.unlink()                                   # one screenshot per trade: a new one replaces it
+    path = folder / (_shot_stem(entry_fill) + ext)
+    path.write_bytes(data)
+    return path
+
+
+def screenshot_for(entry_fill: str) -> Path | None:
+    return next(iter(sorted(screenshot_dir().glob(_shot_stem(entry_fill) + ".*"))), None)
+
+
 def pair_fills(fills: pd.DataFrame, stops: dict[str, float] | None = None,
                cost_per_side: float = DEFAULT_COST_PER_SIDE) -> list[RoundTrip]:
     """FIFO per symbol. A fill that is larger than the open position closes it and opens the rest

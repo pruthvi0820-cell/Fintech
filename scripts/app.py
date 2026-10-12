@@ -759,6 +759,22 @@ def real_trades_section() -> None:
             st.warning("🧠 " + flag)
     st.dataframe(table[["id", "ticker", "direction", "qty", "entry", "exit", "opened_on", "opened_at", "closed_at",
                         "pnl", "r_multiple"]].rename(columns={"r_multiple": "R"}), hide_index=True, width="stretch")
+    with st.expander("📷 Screenshots: attach the chart of a trade"):
+        shot_pick = st.selectbox("Round trip", [f"#{t.id} {t.symbol} {t.direction} {t.qty:g} @ {t.entry:,.2f}"
+                                                for t in trips], key="live_shot_pick")
+        shot_trip = trips[int(shot_pick.split()[0][1:]) - 1]
+        img = st.file_uploader("PNG or JPG (Win + Shift + S, then save)", type=["png", "jpg", "jpeg"],
+                               key="live_shot_file")
+        if img is not None and st.button("Attach screenshot"):
+            try:
+                live_trades.save_screenshot(shot_trip.entry_fill, img.getvalue())
+            except (live_trades.LiveTradeError, OSError) as exc:
+                st.error(str(exc))
+            else:
+                st.success(f"Attached to #{shot_trip.id}.")
+        existing = live_trades.screenshot_for(shot_trip.entry_fill)
+        if existing:
+            st.image(str(existing), caption=f"#{shot_trip.id} {shot_trip.symbol}")
     with st.expander("Record the stop you planned (gives each trade its R)"):
         pick = st.selectbox("Round trip", [f"#{t.id} {t.symbol} {t.direction} {t.qty:g} @ {t.entry:,.2f}"
                                            for t in trips], key="live_stop_pick")

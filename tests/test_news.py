@@ -125,18 +125,18 @@ def test_check_sources_reports_each_feed(monkeypatch, capsys):
 def test_feeds_seen_working_on_this_computer_are_switched_on(tmp_path, monkeypatch):
     from fin_agent.data.news_sources import load_local_verified, save_local_verified
     monkeypatch.setenv("FIN_AGENT_JOURNAL_PATH", str(tmp_path / "journal.sqlite3"))
-    assert "CNBC World Markets" not in {s.name for s in get_sources()}
-    save_local_verified({"CNBC World Markets": "2026-10-12"})
+    assert "Yahoo Finance" not in {s.name for s in get_sources()}
+    save_local_verified({"Yahoo Finance": "2026-10-12"})
     on = {s.name: s for s in get_sources()}
-    assert on["CNBC World Markets"].enabled and on["CNBC World Markets"].verified == "2026-10-12"
-    assert load_local_verified() == {"CNBC World Markets": "2026-10-12"}
+    assert on["Yahoo Finance"].enabled and on["Yahoo Finance"].verified == "2026-10-12"
+    assert load_local_verified() == {"Yahoo Finance": "2026-10-12"}
     (tmp_path / "feeds_verified.json").write_text("garbage")
-    assert "CNBC World Markets" not in {s.name for s in get_sources()}      # damaged file: code defaults
+    assert "Yahoo Finance" not in {s.name for s in get_sources()}      # damaged file: code defaults
 
 
 def test_check_sources_enable_working_switches_feeds(monkeypatch, capsys, tmp_path):
     import importlib.util
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
     from pathlib import Path
 
     from fin_agent.data import news as news_mod
@@ -144,15 +144,13 @@ def test_check_sources_enable_working_switches_feeds(monkeypatch, capsys, tmp_pa
     from fin_agent.data.news_sources import load_local_verified, save_local_verified
 
     monkeypatch.setenv("FIN_AGENT_JOURNAL_PATH", str(tmp_path / "journal.sqlite3"))
-    save_local_verified({"Yahoo Finance": "2026-10-01"})            # worked before, broken now
+    save_local_verified({"Moneycontrol Latest": "2026-10-12"})       # switched on earlier, but it is stale
+    recent = datetime.now(timezone.utc) - timedelta(days=1)
+    dates = {"Yahoo Finance": recent, "Moneycontrol Latest": datetime(2024, 4, 23, tzinfo=timezone.utc), "PIB": None}
 
     def fake_collect(sources, **kw):
         src = sources[0]
-        if src.name == "Yahoo Finance":
-            return [], [SourceStatus(src.name, ok=False, error="HTTPError: 404")]
-        dated = src.name not in ("MarketWatch Top Stories", "PIB")
-        item = NewsItem(src.name, src.category, "t", "https://x",
-                        datetime(2026, 10, 9, tzinfo=timezone.utc) if dated else None)
+        item = NewsItem(src.name, src.category, "t", "https://x", dates.get(src.name, recent))
         return [item], [SourceStatus(src.name, ok=True, entries=5, kept=1)]
 
     monkeypatch.setattr(news_mod, "collect_news", fake_collect)
@@ -162,8 +160,7 @@ def test_check_sources_enable_working_switches_feeds(monkeypatch, capsys, tmp_pa
     spec.loader.exec_module(script)
     assert script.check_sources(enable_working=True) == 0
     out = capsys.readouterr().out
-    local = load_local_verified()
-    assert {"CNBC World Markets", "CNBC Economy", "Moneycontrol Latest"} <= set(local)
-    assert "MarketWatch Top Stories" not in local and "PIB" not in local       # no dates: stays off
-    assert "Yahoo Finance" not in local and "switched OFF Yahoo Finance" in out
-    assert "switched ON  CNBC World Markets" in out and "[OK  ] on  CNBC World Markets" in out
+    assert load_local_verified() == {"Yahoo Finance": datetime.now().date().isoformat()}
+    assert "switched ON  Yahoo Finance" in out
+    assert "switched OFF Moneycontrol Latest" in out and "⚠️ stale" in out          # old items: dead feed
+    assert "[OK  ] off PIB" in out                                                  # no dates: stays off

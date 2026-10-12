@@ -21,13 +21,17 @@ from fin_agent.pipelines.news import build_news_digest
 REPORTS_DIR = Path(__file__).resolve().parent.parent / "reports"
 
 
+FRESH_DAYS = 14          # a feed whose newest item is older than this is dead, even if it answers
+
+
 def check_sources(enable_working: bool = False) -> int:
     """One line per feed: works or not, how many items, and the newest item's date.
 
-    With enable_working, feeds that are off in the code but returned DATED items here are switched
-    on for this computer (journal/feeds_verified.json); ones that stopped working are switched off.
+    With enable_working, feeds that are off in the code but returned RECENT dated items here (newest
+    within FRESH_DAYS) are switched on for this computer (journal/feeds_verified.json); ones that
+    stopped working or went stale are switched off.
     """
-    from datetime import date
+    from datetime import date, datetime, timedelta, timezone
 
     from fin_agent.data.news import collect_news
     from fin_agent.data.news_sources import load_local_verified, save_local_verified
@@ -43,15 +47,17 @@ def check_sources(enable_working: bool = False) -> int:
             if st.ok else st.error
         on = src.enabled or src.name in local
         if enable_working and not src.enabled:
-            if state == "OK  " and newest is not None:
+            fresh = newest is not None and newest >= datetime.now(timezone.utc) - timedelta(days=FRESH_DAYS)
+            if state == "OK  " and fresh:
                 if src.name not in local:
                     changed.append(f"switched ON  {src.name}")
                 local[src.name], on = date.today().isoformat(), True
             elif src.name in local:
                 del local[src.name]
-                changed.append(f"switched OFF {src.name} (not working or no dates)")
+                changed.append(f"switched OFF {src.name} (not working, no dates, or nothing in {FRESH_DAYS} days)")
                 on = False
-        print(f"[{state}] {'on ' if on else 'off'} {src.name:24} {detail}")
+        stale = st.ok and newest is not None and newest < datetime.now(timezone.utc) - timedelta(days=FRESH_DAYS)
+        print(f"[{state}] {'on ' if on else 'off'} {src.name:24} {detail}" + ("  ⚠️ stale" if stale else ""))
     print(f"{working} of {len(SOURCES)} sources work from this computer.")
     if enable_working:
         save_local_verified(local)

@@ -79,7 +79,8 @@ def test_fetch_uses_the_getter():
     assert len(econ_calendar.fetch(get=lambda url: json.dumps(FEED).encode())) == 2
 
 
-def test_new_global_feeds_stay_off_until_verified():
-    for name in ("CNBC World Markets", "CNBC Economy", "MarketWatch Top Stories", "Yahoo Finance"):
-        src = next(s for s in SOURCES if s.name == name)
-        assert not src.enabled and src.verified is None
+def test_global_feeds_on_only_when_verified():
+    on = {s.name: s for s in SOURCES}
+    for name in ("CNBC World Markets", "CNBC Economy", "MarketWatch Top Stories"):
+        assert on[name].enabled and on[name].verified == "2026-10-12"
+    assert not on["Yahoo Finance"].enabled and not on["Moneycontrol Latest"].enabled

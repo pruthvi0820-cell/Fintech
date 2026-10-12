@@ -160,7 +160,8 @@ def test_check_sources_enable_working_switches_feeds(monkeypatch, capsys, tmp_pa
     spec.loader.exec_module(script)
     assert script.check_sources(enable_working=True) == 0
     out = capsys.readouterr().out
-    assert load_local_verified() == {"Yahoo Finance": datetime.now().date().isoformat()}
+    today = datetime.now().date().isoformat()
+    assert load_local_verified() == {"Yahoo Finance": today, "Yahoo Finance India": today}
     assert "switched ON  Yahoo Finance" in out
     assert "switched OFF Moneycontrol Latest" in out and "⚠️ stale" in out          # old items: dead feed
     assert "[OK  ] off PIB" in out                                                  # no dates: stays off

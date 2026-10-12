@@ -101,8 +101,15 @@ SOURCES: list[FeedSource] = [
         verified="2026-10-12", region="Global", tz=ZoneInfo("America/New_York"), notes="",
     ),
     FeedSource(
-        "Yahoo Finance", "https://finance.yahoo.com/news/rssindex", "market", enabled=False, region="Global",
-        tz=ZoneInfo("America/New_York"), notes="HTTP 404 on the user's computer, 2026-10-12.",
+        "Yahoo Finance", "https://finance.yahoo.com/rss/topstories", "market", enabled=False, region="Global",
+        tz=ZoneInfo("America/New_York"),
+        notes="2026-10-12: the old /news/rssindex address returned 404; this is Yahoo's top-stories feed. "
+              "Unverified until --check-sources --enable-working.",
+    ),
+    FeedSource(
+        "Yahoo Finance India", "https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5ENSEI&region=IN&lang=en-IN",
+        "market", enabled=False, region="India", tz=ZoneInfo("America/New_York"),
+        notes="Yahoo headlines about the Nifty 50. Unverified until --check-sources --enable-working.",
     ),
     FeedSource(
         "Moneycontrol Latest", "https://www.moneycontrol.com/rss/latestnews.xml", "market",

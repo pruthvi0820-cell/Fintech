@@ -71,6 +71,8 @@ pytest                      # 519 tests, no network needed
 
 ## Trying it without a broker account
 
+Code checks: `python -m pytest -q` (all tests) and `python -m ruff check src scripts tests` (lint: unused imports, undefined names, line length 120). Install both with `pip install -e ".[dev,app]"`.
+
 `samples/` has a made-up holdings file and tradebook (see `samples/README.md`) to test Portfolio health and the Holding tracker.
 
 ## The page

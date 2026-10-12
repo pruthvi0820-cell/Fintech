@@ -128,7 +128,8 @@ class StockBrief:
         return f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title>
 <style>
-body{{font:16px/1.6 system-ui,sans-serif;max-width:820px;margin:2rem auto;padding:0 16px;color:#1d1d1f;background:#fafaf7}}
+body{{font:16px/1.6 system-ui,sans-serif;max-width:820px;margin:2rem auto;padding:0 16px;
+color:#1d1d1f;background:#fafaf7}}
 h1{{font-size:1.6rem}} h2{{margin-top:2rem;border-bottom:1px solid #ddd;padding-bottom:.3rem}}
 blockquote{{margin:1rem 0;padding:.5rem 1rem;background:#fff6e0;border-left:4px solid #e0a800}}
 pre{{background:#f0f0ec;padding:1rem;overflow-x:auto;font-size:13px}} a{{color:#0b5cad}}

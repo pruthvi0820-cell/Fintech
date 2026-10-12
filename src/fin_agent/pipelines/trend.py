@@ -16,7 +16,8 @@ from fin_agent.llm.prompts import TREND_PROMPT_VERSION, TREND_SYSTEM, build_tren
 
 # The model is told not to write this section (the report adds it from code). If it does anyway,
 # its version is removed, up to the next bold heading, so a wrong copy never reaches the reader.
-_MODEL_LEVELS_SECTION = re.compile(r"^\s*(?:#+\s*)?\*\*What would change[^\n]*\n?(?:(?!\s*(?:#+\s*)?\*\*[^*\n]+:?\*\*).*\n?)*",
+_MODEL_LEVELS_SECTION = re.compile(r"^\s*(?:#+\s*)?\*\*What would change[^\n]*\n?"
+                                   r"(?:(?!\s*(?:#+\s*)?\*\*[^*\n]+:?\*\*).*\n?)*",
                                    re.IGNORECASE | re.MULTILINE)
 
 

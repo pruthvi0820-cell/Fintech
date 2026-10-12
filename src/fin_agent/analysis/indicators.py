@@ -224,7 +224,8 @@ def levels_text(snapshot: dict[str, Any]) -> str | None:
     def side(key: str, word: str) -> str:
         lvl = snapshot.get(key)
         if lvl:
-            return f"- Nearest level {word} the close: {_LEVEL_LABELS.get(lvl['name'], lvl['name'])} at {_price(lvl['value'])}."
+            label = _LEVEL_LABELS.get(lvl["name"], lvl["name"])
+            return f"- Nearest level {word} the close: {label} at {_price(lvl['value'])}."
         removed = [f for f in ("high_52w", "low_52w", "sma.20", "sma.50", "sma.200") if f in excluded]
         why = " (some levels were removed because of a corporate action)" if removed else ""
         return f"- No level {word} the close in this data{why}."

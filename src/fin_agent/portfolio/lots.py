@@ -108,7 +108,8 @@ def parse_tradebook_csv(data: bytes) -> list[Trade]:
     missing = [f for f in _COLUMNS if f not in found]
     if missing:
         raise PortfolioError(
-            f"This doesn't look like a tradebook: no {', '.join(missing)} column. Found: {', '.join(map(str, df.columns))}. "
+            f"This doesn't look like a tradebook: no {', '.join(missing)} column. "
+            f"Found: {', '.join(map(str, df.columns))}. "
             "Export the tradebook (all buys and sells with dates), not the holdings list.")
     trades, bad = [], []
     for i, row in df.iterrows():
@@ -226,7 +227,8 @@ def fy_summary(book: LotBook, today: date) -> dict[str, Any]:
         "ltcg_exemption": rule.ltcg_exemption,
         "exemption_used": round(exemption_used, 2),
         "exemption_left": round(rule.ltcg_exemption - exemption_used, 2),
-        "loss_carried": round(min(lt, 0.0), 2),       # net loss left: can be carried forward 8 years if the return is filed on time
+        # net loss left: can be carried forward 8 years if the return is filed on time
+        "loss_carried": round(min(lt, 0.0), 2),
         "estimated_tax": round(tax, 2),
         "rule": rule,
     }
@@ -245,7 +247,8 @@ def harvest_ideas(rows: list[dict[str, Any]], summary: dict[str, Any]) -> list[s
     losses = [r for r in rows if (r["gain_if_sold"] or 0) < 0]
     if losses:
         total = sum(r["gain_if_sold"] for r in losses)
-        ideas.append(f"Lots currently at a loss: ₹{abs(total):,.0f} in total. Realising a loss before 31 March can be set off "
+        ideas.append(f"Lots currently at a loss: ₹{abs(total):,.0f} in total. "
+                     "Realising a loss before 31 March can be set off "
                      "against this year's gains (tax-loss harvesting).")
     soon = [r for r in rows if not r["long_term_now"] and r["days_to_long_term"] <= 60 and (r["gain_if_sold"] or 0) > 0]
     for r in soon:

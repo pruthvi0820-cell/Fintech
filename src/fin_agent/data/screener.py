@@ -151,7 +151,7 @@ def _series(values: dict[date, float] | None, scale: float = CRORE) -> pd.Series
 
 
 def _first(sec: dict[str, dict[date, float]], *labels: str) -> dict[date, float] | None:
-    return next((sec[_norm(l)] for l in labels if _norm(l) in sec), None)
+    return next((sec[_norm(lab)] for lab in labels if _norm(lab) in sec), None)
 
 
 def share_count(data: ScreenerData) -> float | None:

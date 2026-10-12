@@ -23,7 +23,7 @@ from fin_agent.charts import DRAW_CONFIG, candle_chart
 from fin_agent.config import Settings
 from fin_agent.data import market_data
 from fin_agent.llm import factory
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fin_agent.data.fundamentals import FundamentalsError, Statements
@@ -239,7 +239,8 @@ def paper_trade_section(ticker: str, sig: dict, plan, last_close: float, cost_pe
     except paper_mod.PaperError as exc:
         st.warning(str(exc))
     else:
-        st.success(f"Paper trade #{tid} opened: {int(shares)} × {ticker} at ₹{last_close:,.2f}, stop ₹{plan.stop:,.2f}, "
+        st.success(f"Paper trade #{tid} opened: {int(shares)} × {ticker} at ₹{last_close:,.2f}, "
+                   f"stop ₹{plan.stop:,.2f}, "
                    f"target ₹{plan.target:,.2f}.")
 
 
@@ -828,7 +829,8 @@ def journal_tab() -> None:
     if not open_trades.empty:
         st.subheader("Close a trade")
         with st.form("close_trade", clear_on_submit=True):
-            labels = {f"#{r.id} {r.ticker}: {r.shares} @ ₹{r.price:,.2f} (stop ₹{r.stop:,.2f}, target ₹{r.target:,.2f})": r
+            labels = {f"#{r.id} {r.ticker}: {r.shares} @ ₹{r.price:,.2f} "
+                      f"(stop ₹{r.stop:,.2f}, target ₹{r.target:,.2f})": r
                       for r in open_trades.itertuples()}
             choice = st.selectbox("Open trade", list(labels))
             c1, c2 = st.columns(2)
@@ -1072,7 +1074,8 @@ def patterns_section(bars: pd.DataFrame, interval: str, recent: list) -> None:
             f"Avg move next {patterns_mod.HORIZON} candles": mv(r["avg_move"]),
             "Avg move from any candle": mv(r["baseline_move"]), "What it means": verdict(r),
         } for r in rows]), hide_index=True, width="stretch")
-        st.caption(f"Worked = reached the target before the stop within {patterns_mod.HORIZON} candles. Fair rate = how "
+        st.caption(f"Worked = reached the target before the stop within {patterns_mod.HORIZON} candles. "
+                   "Fair rate = how "
                    "often that would happen on a market with no edge, given each pattern's target and stop distances. "
                    "Patterns are counted only from the candle where all of them was visible (no hindsight). Rules: "
                    "double bottom/top = two lows/highs within half an ATR, 5–60 candles apart, neckline 1.5+ ATR away, "
@@ -1114,7 +1117,8 @@ def scanner_tab() -> None:
     fmt = lambda x, f: "–" if x is None else format(x, f)   # noqa: E731
     st.dataframe(pd.DataFrame([{
         "Symbol": r["ticker"], "Flags": "; ".join(r.get("flags", [])) or r.get("error", ""),
-        "Last": fmt(r.get("last"), ",.2f"), "Change": fmt(None if r.get("change") is None else r["change"] * 100, "+.2f"),
+        "Last": fmt(r.get("last"), ",.2f"),
+        "Change": fmt(None if r.get("change") is None else r["change"] * 100, "+.2f"),
         "Regime": r.get("regime", "–") + (" ⚠️" if r.get("high_volatility") else ""),
         "RSI": fmt(r.get("rsi"), ".0f"), "Rel. volume": fmt(r.get("rel_volume"), ".1f"),
         "Support": fmt(r.get("support"), ",.2f"), "Resistance": fmt(r.get("resistance"), ",.2f"),
@@ -1439,7 +1443,8 @@ def portfolio_health_section(portfolio) -> None:
     st.divider()
     st.subheader("🧭 Portfolio health")
     if portfolio is None:
-        st.info("Load your holdings in the sidebar (CSV upload or Zerodha) to see your mix by stock and sector, and set targets.")
+        st.info("Load your holdings in the sidebar (CSV upload or Zerodha) to see your mix by stock and sector, "
+                "and set targets.")
         return
     try:
         snap = portfolio_snapshot(portfolio)

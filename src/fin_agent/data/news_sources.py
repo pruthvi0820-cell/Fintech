@@ -69,7 +69,8 @@ SOURCES: list[FeedSource] = [
     # Added 2026-10-10; all four returned dated items via `news_digest.py --check-sources` on the
     # user's computer on 2026-10-11 (Fed 20, ECB 15, BoE 50, BoJ 51 items).
     FeedSource(
-        "US Federal Reserve", "https://www.federalreserve.gov/feeds/press_all.xml", "central bank", verified="2026-10-11",
+        "US Federal Reserve", "https://www.federalreserve.gov/feeds/press_all.xml", "central bank",
+        verified="2026-10-11",
         region="United States", tz=ZoneInfo("America/New_York"),
         notes="All press releases: rate decisions, statements, enforcement.",
     ),

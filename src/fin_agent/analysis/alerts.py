@@ -44,7 +44,8 @@ OFFICIAL_CATEGORIES = frozenset({"regulator", "government", "central bank"})
 @dataclass(frozen=True)
 class Alert:
     level: str               # "high" | "medium" | "info"
-    kind: str                # "signal" | "event" | "paper" | "tax" | "tax-news" | "mark" | "calendar" | "risk" | "pattern"
+    kind: str                # "signal" | "event" | "paper" | "tax" | "tax-news" | "mark" | "calendar" | "risk"
+    #                          | "pattern"
     ticker: str
     text: str
 
@@ -169,8 +170,9 @@ def loss_limit_alerts(day_pnls: list[float], rules: Any, capital: float | None, 
     lost = -sum(losses)
     out = []
     if len(losses) >= rules.max_losses_per_day:
-        out.append(Alert("high", "risk", "RISK", f"{len(losses)} losing trades today ({today.isoformat()}): your "
-                                                  f"{rules.max_losses_per_day}-loss stop is reached. Stop trading today."))
+        out.append(Alert("high", "risk", "RISK",
+                         f"{len(losses)} losing trades today ({today.isoformat()}): your "
+                         f"{rules.max_losses_per_day}-loss stop is reached. Stop trading today."))
     if capital:
         limit = rules.daily_loss_pct * capital
         if lost >= limit:

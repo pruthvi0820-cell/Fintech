@@ -139,7 +139,8 @@ def main() -> int:
         if args.setup:
             chats = telegram.find_chat_ids(token)
             if not chats:
-                print("No messages found. Open Telegram, send any message (e.g. 'hi') to your bot, then run this again.")
+                print("No messages found. Open Telegram, send any message (e.g. 'hi') to your bot, "
+                      "then run this again.")
                 return 1
             for cid, name in chats:
                 print(f"chat id {cid}  ({name})")

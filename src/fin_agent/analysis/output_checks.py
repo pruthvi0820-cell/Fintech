@@ -331,7 +331,8 @@ def check_macd(text: str, snapshot: dict[str, Any]) -> list[str]:
 
 # ---------------------------------------------------------------- comparisons
 
-_SMA_NAME = r"(?:sma[\s_-]?(?P<{g}a>20|50|200)|(?P<{g}b>20|50|200)[\s-]?day(?:\s+(?:simple\s+)?(?:moving\s+)?(?:SMA|average|MA|DMA))?)"
+_SMA_NAME = (r"(?:sma[\s_-]?(?P<{g}a>20|50|200)|(?P<{g}b>20|50|200)[\s-]?day"
+             r"(?:\s+(?:simple\s+)?(?:moving\s+)?(?:SMA|average|MA|DMA))?)")
 _SMA_PAIR = re.compile(
     _SMA_NAME.format(g="x") + r"(?:\s*\([^)]*\))?\s+(?:is|was|remains|stays|sits|lies|trades)?\s*(?:still\s+)?"
     r"(?P<cmp>above|below|higher\s+than|lower\s+than)\s+(?:the\s+|its\s+)?" + _SMA_NAME.format(g="y"),

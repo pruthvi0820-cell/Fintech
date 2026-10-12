@@ -300,7 +300,8 @@ def pair_fills(fills: pd.DataFrame, stops: dict[str, float] | None = None,
     """FIFO per symbol. A fill that is larger than the open position closes it and opens the rest
     the other way (a reversal). Unclosed quantity is an open round trip."""
     stops = stops or {}
-    open_lots: dict[str, deque] = defaultdict(deque)       # symbol -> [ [qty_left, price, time, sign, fill_id, product] ]
+    # symbol -> lots, each [qty_left, price, time, sign, fill_id, product]
+    open_lots: dict[str, deque] = defaultdict(deque)
     trips: list[RoundTrip] = []
     for f in fills.itertuples():
         sign = 1 if f.side == "BUY" else -1

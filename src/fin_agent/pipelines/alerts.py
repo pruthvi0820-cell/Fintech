@@ -29,7 +29,8 @@ def gather_alerts(watchlist: list[str], held: set[str], today: date, bars: BarsL
                   events: EventStore | None = None, paper: PaperBook | None = None,
                   journal: Journal | None = None, news: list | None = None,
                   marks: dict[str, list[Mark]] | None = None, calendar: list | None = None,
-                  now: datetime | None = None, live: Any = None, capital: float | None = None) -> tuple[list[rules.Alert], list[str]]:
+                  now: datetime | None = None, live: Any = None,
+                  capital: float | None = None) -> tuple[list[rules.Alert], list[str]]:
     """(alerts sorted most important first, the tickers whose signals were checked)."""
     tickers = sorted(set(watchlist) | held)
     signals: dict = {}

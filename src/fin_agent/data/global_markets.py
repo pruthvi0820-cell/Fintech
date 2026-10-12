@@ -38,7 +38,8 @@ INSTRUMENTS: list[Instrument] = [
     Instrument("Hang Seng", "^HSI", "Asia", "Hong Kong; China sentiment."),
     Instrument("Shanghai", "000001.SS", "Asia", "Mainland China."),
     Instrument("USD/INR", "USDINR=X", "Currency", "Rupee per dollar: up = weaker rupee (helps IT exporters)."),
-    Instrument("Dollar index", "DX-Y.NYB", "Currency", "Dollar vs major currencies: up = pressure on emerging markets."),
+    Instrument("Dollar index", "DX-Y.NYB", "Currency",
+               "Dollar vs major currencies: up = pressure on emerging markets."),
     Instrument("Brent crude", "BZ=F", "Commodities", "India imports most of its oil: up = costlier for India."),
     Instrument("Gold", "GC=F", "Commodities", "Safe haven: often up when markets are worried."),
 ]

@@ -35,7 +35,8 @@ WEAK = frozenset({"chip", "chips", "fab", "rail", "battery", "batteries", "charg
 def _is_acronym(word: str) -> bool:
     """EV, EVs, MPC, OSAT, H-1B: matched in capitals only, so 'ev' or 'mpc' in other text don't count."""
     letters = re.sub(r"[^A-Za-z]", "", word)
-    return bool(letters) and (letters.isupper() or (letters[:-1].isupper() and letters[-1] == "s")) and len(letters) <= 5
+    plural_acronym = letters[:-1].isupper() and letters[-1:] == "s"
+    return bool(letters) and (letters.isupper() or plural_acronym) and len(letters) <= 5
 
 
 def _pattern(words: list[str], case_sensitive: bool) -> re.Pattern | None:

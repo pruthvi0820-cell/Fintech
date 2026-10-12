@@ -258,7 +258,8 @@ def split_parts(text: str, size: int = PART_CHARS) -> list[str]:
 # ---------------------------------------------------------------- chat commands
 
 HELP = """**Your notes: commands**
-- `/store topic: text` — save a note, e.g. `/store tax: LTCG on shares is 12.5% above ₹1.25 lakh from 23 July 2024. Source: Budget 2024`
+- `/store topic: text` — save a note, e.g.
+  `/store tax: LTCG on shares is 12.5% above ₹1.25 lakh from 23 July 2024. Source: Budget 2024`
 - `/list` or `/list tax` — see your notes
 - `/update 3: new text` — replace note #3 (the old version is kept in its history)
 - `/delete 3` — delete note #3 (asks you to confirm)
@@ -301,7 +302,8 @@ def run_command(text: str, store: NoteStore) -> str:
             notes = store.all(rest or None)
             if not notes:
                 return "No notes yet" + (f" under '{rest}'." if rest else ". Save one with `/store topic: text`.")
-            return f"**Your notes{f' on {rest}' if rest else ''} ({len(notes)}):**\n" + "\n".join(map(_note_line, notes))
+            title = f"**Your notes{f' on {rest}' if rest else ''} ({len(notes)}):**"
+            return title + "\n" + "\n".join(map(_note_line, notes))
         if cmd == "update":
             num, sep, body = rest.partition(":")
             if not sep or not num.strip().isdigit():

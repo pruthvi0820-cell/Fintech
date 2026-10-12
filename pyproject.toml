@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.6"]
 app = ["streamlit>=1.65", "plotly>=5.20"]   # page: streamlit run scripts/app.py
 
 [tool.setuptools.packages.find]
@@ -29,3 +29,13 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]     # pycodestyle errors/warnings + pyflakes (unused imports, undefined names)
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]         # tests quote exact model sentences and data rows; wrapping them would hide what they check

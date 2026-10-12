@@ -187,7 +187,7 @@ def test_nearest_level_names_do_not_whitelist_invented_numbers():
 
 # ---- trend_label_change (trend-v6): only a close past sma50 changes the label
 
-from fin_agent.analysis.indicators import classify_trend, trend_label_change  # noqa: E402
+from fin_agent.analysis.indicators import trend_label_change  # noqa: E402
 
 
 @pytest.mark.parametrize(("close", "sma50", "sma200", "side", "new"), [

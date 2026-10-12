@@ -136,7 +136,8 @@ def your_record(entries: pd.DataFrame, ticker: str) -> dict[str, Any]:
 
 
 def stock_records(result: BacktestResult, long_close: pd.Series | None, cost_per_side: float) -> list[Record]:
-    """All styles in display order. `long_close` is the longest close history available; None if it couldn't be fetched."""
+    """All styles in display order. `long_close` is the longest close history available; None if it couldn't
+    be fetched."""
     records = [intraday_record(), swing_record(result)]
     for label, days in HORIZONS.items():
         if long_close is None or long_close.empty:

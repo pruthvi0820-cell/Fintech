@@ -33,7 +33,8 @@ CARD: list[tuple[str, str, str, str]] = [
     ("revenue_growth_1y", "Revenue growth (1 year)", "pct", "Change in revenue versus the year before."),
     ("net_profit_growth_1y", "Profit growth (1 year)", "pct", "Change in net profit versus the year before."),
     ("revenue_cagr_3y", "Revenue growth (3-year average)", "pct", "Average yearly revenue growth over 3 years."),
-    ("dividend_yield", "Dividend yield", "pct", "Dividends of the last 12 months ÷ price: yearly cash per ₹100 invested."),
+    ("dividend_yield", "Dividend yield", "pct",
+     "Dividends of the last 12 months ÷ price: yearly cash per ₹100 invested."),
 ]
 
 
@@ -91,7 +92,8 @@ def build_fundamentals_report(st: Statements, client=None, on_text=None) -> Fund
     report.check = check_numbers(res.text, facts)
     report.check.fact_mismatches = (check_comparisons(res.text, facts) + check_rule_words(res.text)
                                     + check_rule_words(res.text, VALUATION_WORDS))
-    report.footer = f"{res.model} | {FUNDAMENTALS_PROMPT_VERSION} | {res.input_tokens} in / {res.output_tokens} out tokens"
+    report.footer = (f"{res.model} | {FUNDAMENTALS_PROMPT_VERSION} | {res.input_tokens} in / "
+                     f"{res.output_tokens} out tokens")
     return report
 
 

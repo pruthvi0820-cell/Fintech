@@ -147,9 +147,15 @@ def main() -> int:
             return 0
         every = max(5, args.every)
         print(f"Checking every {every} minutes{'' if args.any_time else ' in market hours'}. Ctrl+C to stop.")
+        waiting_said = False
         while True:
             now = datetime.now(IST)
+            if not (args.any_time or in_market_hours(now)) and not waiting_said:
+                print(f"{now:%H:%M} Market closed. Waiting quietly; checks restart at 9:15 IST on the next "
+                      "weekday. Keep this window open.")
+                waiting_said = True
             if args.any_time or in_market_hours(now):
+                waiting_said = False
                 try:
                     n = run_once(token, chat_id, scan_news=not args.no_news, now=now)
                     print(f"{now:%H:%M} {n} new alert(s) sent." if n else f"{now:%H:%M} no new alerts.")

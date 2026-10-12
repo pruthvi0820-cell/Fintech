@@ -10,6 +10,12 @@ if not exist ".venv\Scripts\activate.bat" (
 )
 call ".venv\Scripts\activate.bat"
 echo Starting FinTray... your browser will open at http://localhost:8501
-echo Keep this window open while you use FinTray. Close it to stop.
+echo.
+echo  ============================================================
+echo   THIS WINDOW IS FINTRAY ITSELF. KEEP IT OPEN (minimise it).
+echo   It shows a few lines and then waits: that is normal.
+echo   Closing it switches FinTray off.
+echo  ============================================================
+echo.
 streamlit run scripts\app.py
 pause

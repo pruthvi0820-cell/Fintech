@@ -8,7 +8,14 @@ if not exist ".venv\Scripts\activate.bat" (
   exit /b 1
 )
 call ".venv\Scripts\activate.bat"
-echo FinTray alerts: checking every 15 minutes, 9:15 am to 3:30 pm IST, Monday to Friday.
-echo Keep this window open. Close it to stop.
+echo.
+echo  ============================================================
+echo   FINTRAY PHONE ALERTS. KEEP THIS WINDOW OPEN (minimise it).
+echo   Every 15 minutes in market hours (9:15-15:30 IST, Mon-Fri)
+echo   it checks and prints one line, e.g. "10:15 no new alerts".
+echo   The repeating line is normal: it is the watcher working.
+echo   Closing it stops Telegram alerts.
+echo  ============================================================
+echo.
 python scripts\alerts_runner.py
 pause

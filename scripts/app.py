@@ -42,6 +42,7 @@ from fin_agent.data.fundamentals import fetch_quote
 from fin_agent.knowledge import library as library_mod
 from fin_agent.knowledge import notes as notes_mod
 from fin_agent.portfolio import paper as paper_mod
+from fin_agent.portfolio.performance import performance
 from fin_agent.portfolio.allocation import (TargetError, drifts, health_flags, load_targets, save_targets,
                                             sector_mix)
 from fin_agent.portfolio.tax_plan import PlanError as TaxPlanError, gain_harvest_plan, simulate_sale
@@ -281,6 +282,21 @@ def paper_tab() -> None:
                    f"against it: {a['trades']} trades, win rate {rate(a['win_rate'])}.")
 
     df = book.trades()
+    perf = performance(df, s["start_cash"])
+    if perf["trades"]:
+        k2 = st.columns(4)
+        k2[0].metric("Expectancy per trade", f"₹{perf['expectancy']:,.0f}",
+                     help="Average result per closed trade. Positive = the way you trade makes money over many trades.")
+        k2[1].metric("Expectancy in R", "–" if perf["expectancy_r"] is None else f"{perf['expectancy_r']:+.2f}R")
+        k2[2].metric("Max drawdown", f"₹{perf['max_drawdown']:,.0f}",
+                     None if perf["max_drawdown_pct"] is None else f"-{perf['max_drawdown_pct'] * 100:.1f}%",
+                     delta_color="off", help="The deepest fall from a high point, closed trades in order.")
+        k2[3].metric("Longest losing streak", perf["longest_losing_streak"])
+        if perf["too_few"]:
+            st.caption(f"Only {perf['trades']} closed trade(s): at least 10, ideally 30+, are needed before these "
+                       "numbers mean much.")
+        for flag in perf["tilt"]:
+            st.warning("🧠 " + flag)
     open_ = df[df["status"] == "open"]
     if not open_.empty:
         st.markdown("**Open paper trades**")

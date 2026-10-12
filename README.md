@@ -86,6 +86,8 @@ streamlit run scripts/app.py        # opens http://localhost:8501
 
 `.streamlit/config.toml` keeps the page private to this computer (`address = "localhost"`) and turns off Streamlit's usage statistics. Start it from the project folder so the file is picked up.
 
+**📊 Performance and tilt** (🧪 Paper trading tab): expectancy per trade (₹ and R), max drawdown, longest losing streak, and 🧠 tilt warnings: a bigger bet right after a loss, other trades on a day with a loss, 5+ trades in a day. Flagged as too few to judge below 10 closed trades.
+
 **🛡️ Risk engine (hard rules)** (🧪 Paper trading tab): every paper trade, and in Step 7 every real order, must pass rules checked in code that the AI cannot change: a stop-loss is set; risk per trade at most 1% of capital (costs included); reward-to-risk at least 1.5; a 2-loss stop for the day; at most 5 trades a day; a daily loss limit of 2% (including the new trade's risk); NSE and currency market hours; no new intraday trades after 15:00 IST. You can change them in the panel, within hard ceilings (e.g. never above 2% risk per trade). Stricter limits apply at once; looser ones only from tomorrow. Saved in `journal/risk_rules.json`.
 
 **🧭 Regime, support/resistance and intraday candles** (📈 Chart & signals): pick **Candles** = 1d, 1h, 15m or 5m. FinTray shows the market regime for those candles (trending up/down, ranging or unclear from ADX(14); a high-volatility flag when ATR is 1.5x its usual level; position vs the 200-candle average) and draws support (green) and resistance (red) from swing highs and lows, thicker when touched more often. Buy/sell conditions, the backtest and the trade plan still use daily candles.

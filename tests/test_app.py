@@ -450,3 +450,21 @@ def test_risk_rules_panel_shows_status_and_saves_stricter_rules(app):
     next(b for b in app.button if b.label == "Save risk rules").click().run()
     assert not app.exception
     assert any("The new limits apply now" in s.value for s in app.success)
+
+
+def test_paper_tab_shows_expectancy_and_tilt(app, tmp_path):
+    from datetime import date as d
+    from fin_agent.analysis.risk import TradePlan
+    from fin_agent.portfolio.paper import PaperBook
+    book = PaperBook(tmp_path / "paper.sqlite3")
+    p = TradePlan(entry=100, stop=95, target=110, atr=2, shares=10, position_value=1000, max_loss=0, max_loss_pct=0,
+                  position_pct=0, reward_if_target=0, limited_by="risk budget", stop_distance_pct=0,
+                  target_distance_pct=0)
+    t1 = book.open_trade("A.NS", p, 100.0, {}, "practice", d(2026, 10, 1))
+    book.close_trade(t1, 95.0, "stop-loss", d(2026, 10, 1))
+    book.open_trade("B.NS", p, 100.0, {}, "practice", d(2026, 10, 2), shares=30)
+    app.run()
+    assert not app.exception
+    labels = [m.label for m in app.metric]
+    assert {"Expectancy per trade", "Max drawdown", "Longest losing streak"} <= set(labels)
+    assert any("right after it lost" in w.value for w in app.warning)

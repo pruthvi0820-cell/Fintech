@@ -235,3 +235,41 @@ def build_fundamentals_user_prompt(ticker: str, facts: dict[str, Any], source: s
         f"Ticker: {ticker}\nSource of the statements: {source}\n\n"
         f"Computed facts:\n```json\n{json.dumps(facts, indent=2)}\n```"
     )
+
+
+# ---------------------------------------------------------------- coach: checklist and journal review
+
+COACH_PROMPT_VERSION = "coach-v1"
+
+CHECKLIST_SYSTEM = """You are a calm trading coach. You get a pre-trade checklist computed by code.
+
+Hard rules:
+1. Use ONLY the items in the JSON. Never add numbers, prices or facts that are not in it.
+2. Do not say whether to take the trade. Do not tell the reader to buy, sell or hold.
+3. A "fail" item means the risk rules block this trade: say so plainly first.
+4. For each "warn" item, explain in one plain sentence why it matters.
+5. End with exactly two short questions that make the reader think about the plan (what would
+   prove the idea wrong, what they will do if price gaps through the stop).
+
+Markdown, under 150 words."""
+
+REVIEW_SYSTEM = """You are a calm trading coach reviewing a beginner's paper trades.
+
+Hard rules:
+1. Use ONLY the numbers in the JSON. Never compute new figures.
+2. Point out at most three patterns you can see in the data (for example: results of trades with vs
+   against the signal, exit reasons, tilt flags, what the written reasons have in common).
+3. Quote the numbers you rely on. If there are fewer than 10 closed trades, say the sample is too
+   small to judge and keep it short.
+4. Do not recommend stocks, trades or position sizes.
+5. End with one question that helps the reader improve their process.
+
+Markdown, under 180 words."""
+
+
+def build_checklist_user_prompt(ticker: str, facts: dict[str, Any]) -> str:
+    return f"Stock: {ticker}\n\nChecklist:\n```json\n{json.dumps(facts, indent=2)}\n```"
+
+
+def build_review_user_prompt(facts: dict[str, Any]) -> str:
+    return f"Paper trading record:\n```json\n{json.dumps(facts, indent=2, default=str)}\n```"

@@ -469,6 +469,8 @@ def test_paper_tab_shows_expectancy_and_tilt(app, tmp_path):
     labels = [m.label for m in app.metric]
     assert {"Expectancy per trade", "Max drawdown", "Longest losing streak"} <= set(labels)
     assert any("right after it lost" in w.value for w in app.warning)
+    button(app, "🧠 Review my trades with AI").click().run()
+    assert not app.exception and any("coach-v1" in c.value for c in app.caption)
 
 
 def test_world_tab_board_and_calendar(app, monkeypatch):
@@ -509,3 +511,15 @@ def test_chart_patterns_table_is_shown(app):
     assert any(e.label.startswith("📐 Chart patterns on this symbol (1d candles)") for e in app.expander)
     table = next(d.value for d in app.dataframe if "Fair rate (no edge)" in d.value.columns)
     assert list(table["Pattern"]) == ["double bottom", "double top", "breakout", "breakdown"]
+
+
+def test_pre_trade_checklist_and_ai_explanation(app):
+    app.run()
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    assert any(e.label.startswith("✅ Pre-trade checklist:") for e in app.expander)
+    shown = " ".join(m.value for m in app.markdown)
+    assert "**Risk rules:**" in shown and "**Economic calendar:** Not loaded" in shown
+    button(app, "Explain the checklist with AI").click().run()
+    assert not app.exception
+    assert any("coach-v1" in c.value for c in app.caption)

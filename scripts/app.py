@@ -36,6 +36,8 @@ from fin_agent.analysis.levels import find_levels
 from fin_agent.analysis.regime import SUITS, classify_regime
 from fin_agent.analysis.scanner import scan
 from fin_agent.analysis import patterns as patterns_mod
+from fin_agent.analysis.checklist import build_checklist, summary as checklist_summary
+from fin_agent.pipelines import coach
 from fin_agent.analysis import events as events_mod
 from fin_agent.data import econ_calendar, tax_rules
 from fin_agent.data.global_markets import board as world_board_rows
@@ -330,6 +332,20 @@ def paper_tab() -> None:
                                  "exit_reason", "pnl", "r_multiple", "reason"]], hide_index=True, width="stretch")
     if df.empty:
         st.info("No paper trades yet. In the Chart tab, make a trade plan and press 'Open paper trade'.")
+    if perf["trades"]:
+        if st.button("🧠 Review my trades with AI"):
+            client = ai_client()
+            if client is not None:
+                live = st.empty()
+                with st.spinner("The coach is reading your trades…"):
+                    try:
+                        text, footer = coach.review_journal(client, coach.review_facts(df, perf, s),
+                                                            on_text=lambda t: live.markdown(safe_model_text(t)))
+                    except Exception as exc:
+                        st.error(f"The AI couldn't answer ({type(exc).__name__}). Your numbers above are complete.")
+                    else:
+                        live.markdown(text)
+                        st.caption(footer)
     with st.expander("Start again with new virtual money"):
         new_cash = st.number_input("Starting money ₹", min_value=1000.0, value=float(s["start_cash"]), step=1000.0)
         if st.checkbox("I understand this deletes every paper trade") and st.button("Reset paper account"):
@@ -736,6 +752,56 @@ def regime_section(bars: pd.DataFrame, interval: str) -> None:
             st.caption(SUITS[reg["regime"]] + " This describes the market; it is not a signal to trade.")
 
 
+ICONS = {"pass": "✅", "warn": "⚠️", "fail": "⛔", "unknown": "❔"}
+
+
+def ai_client():
+    try:
+        return factory.client_from_env(max_tokens=1200)
+    except (ValueError, RuntimeError) as exc:
+        st.error(f"Can't start the model: {exc}")
+        return None
+
+
+def checklist_section(ticker: str, plan, daily: pd.DataFrame, chart: pd.DataFrame, interval: str,
+                      cost_per_side: float) -> None:
+    if plan is None:
+        return
+    book = get_paper()
+    if book is None:
+        return
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    df = book.trades()
+    today = now.date().isoformat()
+    verdict = risk_engine.check_trade(
+        ticker=ticker, entry=plan.entry, stop=plan.stop, target=plan.target, shares=plan.shares,
+        capital=book.start_cash(), cost_per_side=cost_per_side,
+        day_results=[float(x) for x in df.loc[(df["status"] == "closed") & (df["closed_on"] == today), "pnl"]],
+        trades_today=int((df["opened_on"] == today).sum()), rules=risk_engine.load_rules())
+    items = build_checklist(plan, daily, chart, interval, verdict, st.session_state.get("calendar"), now)
+    facts = checklist_summary(items)
+    c = facts["counts"]
+    with st.expander(f"✅ Pre-trade checklist: {c['pass']} pass · {c['warn']} warn · {c['fail']} fail"
+                     + (f" · {c['unknown']} unknown" if c["unknown"] else ""), expanded=bool(c["fail"])):
+        for it in items:
+            st.markdown(f"{ICONS[it.status]} **{esc(it.name)}:** {esc(it.detail)}")
+        st.caption("Computed by FinTray's code; the AI can explain it but can't change it. Paper-trade risk is "
+                   "measured against your paper account.")
+        if st.button("Explain the checklist with AI", key="checklist_ai"):
+            client = ai_client()
+            if client is not None:
+                live = st.empty()
+                with st.spinner("The coach is reading the checklist…"):
+                    try:
+                        text, footer = coach.explain_checklist(client, ticker, facts,
+                                                               on_text=lambda t: live.markdown(safe_model_text(t)))
+                    except Exception as exc:          # model down or timed out: the checklist above still stands
+                        st.error(f"The AI couldn't answer ({type(exc).__name__}). The checklist above is complete.")
+                    else:
+                        live.markdown(text)
+                        st.caption(footer)
+
+
 def patterns_section(bars: pd.DataFrame, interval: str, recent: list) -> None:
     with st.expander(f"📐 Chart patterns on this symbol ({interval} candles), measured on its own history"):
         for pt in recent:
@@ -915,6 +981,7 @@ def chart_tab() -> None:
     recent_patterns = patterns_mod.latest(chart_bars, within=30)
 
     plan = trade_plan_section(bars, cost / 100)
+    checklist_section(hist.ticker, plan, bars, chart_bars, interval, cost / 100)
     log_decision_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
     paper_trade_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
     marks = marks_mod.load_marks().get(hist.ticker, [])

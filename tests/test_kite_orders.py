@@ -1,4 +1,5 @@
 import ast
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -152,4 +153,89 @@ def test_the_ai_layer_cannot_reach_order_placement():
             tree = ast.parse(f.read_text(encoding="utf-8"))
             names = [n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
             names += [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
-            assert not any("kite_orders" in n for n in names), f"{f.name} imports order placement"
+            assert not any("kite_orders" in n or "angel_orders" in n for n in names), f"{f.name} imports orders"
+
+
+# ---- Angel One send step (same approval locks)
+
+from fin_agent.broker import angel_orders  # noqa: E402
+
+
+class AngelHTTP:
+    def __init__(self, search, place):
+        self.search, self.place, self.calls = search, place, []
+
+    def post(self, url, headers=None, data=None, timeout=None):
+        self.calls.append((url, headers, json.loads(data)))
+        return self.search if url.endswith("/searchScrip") else self.place
+
+
+@pytest.fixture
+def angel_live(live, monkeypatch):
+    monkeypatch.setenv("FIN_AGENT_ANGEL_API_KEY", "akey")
+    monkeypatch.setenv("FIN_AGENT_ANGEL_CLIENT_CODE", "A1")
+    monkeypatch.setattr(angel_orders, "load_session", lambda: {"jwt": "JWT"})
+    return live
+
+
+SEARCH_OK = Resp(200, {"status": True, "data": [{"tradingsymbol": "SBIN-BE", "symboltoken": "1"},
+                                                 {"tradingsymbol": "SBIN-EQ", "symboltoken": "3045"}]})
+PLACE_OK = Resp(200, {"status": True, "data": {"orderid": "A0001"}})
+
+
+def test_angel_entry_goes_through_the_same_approval(angel_live):
+    d = draft_entry("SBIN.NS", 10, 500.02, "MIS")
+    angel_live.approve(d, "BUY 10 SBIN", now=NOW)
+    http = AngelHTTP(SEARCH_OK, PLACE_OK)
+    assert angel_live.submit(d, risk_ok=True, http=http, now=NOW, sender=angel_orders.send) == "A0001"
+    (_, h1, search), (url, h2, body) = http.calls
+    assert search == {"exchange": "NSE", "searchscrip": "SBIN"} and h2["Authorization"] == "Bearer JWT"
+    assert url.endswith("/placeOrder") and body == {
+        "variety": "NORMAL", "tradingsymbol": "SBIN-EQ", "symboltoken": "3045", "transactiontype": "BUY",
+        "exchange": "NSE", "ordertype": "LIMIT", "producttype": "INTRADAY", "duration": "DAY", "price": "500.00",
+        "quantity": "10", "ordertag": "fintray"}
+    with pytest.raises(OrderError, match="not been approved"):                     # single use
+        angel_live.submit(d, risk_ok=True, http=http, now=NOW, sender=angel_orders.send)
+
+
+def test_angel_stop_loss_body():
+    s = draft_stop("SBIN.NS", 10, 490, "CNC")
+    body = angel_orders.order_body(s, "SBIN-EQ", "3045")
+    assert body["variety"] == "STOPLOSS" and body["ordertype"] == "STOPLOSS_LIMIT" and body["triggerprice"] == "490.00"
+    assert body["producttype"] == "DELIVERY" and float(body["price"]) < 490
+
+
+def test_angel_risk_and_live_switch_still_apply(angel_live, monkeypatch):
+    d = draft_entry("SBIN.NS", 10, 500, "MIS")
+    angel_live.approve(d, "BUY 10 SBIN", now=NOW)
+    http = AngelHTTP(SEARCH_OK, PLACE_OK)
+    with pytest.raises(OrderError, match="risk rules"):
+        angel_live.submit(d, risk_ok=False, http=http, now=NOW, sender=angel_orders.send)
+    assert http.calls == []
+    d2 = draft_entry("SBIN.NS", 5, 500, "MIS")
+    angel_live.approve(d2, "BUY 5 SBIN", now=NOW)
+    monkeypatch.delenv("FIN_AGENT_LIVE_TRADING")
+    with pytest.raises(OrderError, match="Live trading is off"):
+        angel_live.submit(d2, risk_ok=True, http=http, now=NOW, sender=angel_orders.send)
+    assert http.calls == []
+
+
+def test_angel_unknown_symbol_and_rejection_are_recorded(angel_live):
+    d = draft_entry("XYZ.NS", 1, 10, "MIS")
+    angel_live.approve(d, "BUY 1 XYZ", now=NOW)
+    with pytest.raises(OrderError, match="no NSE equity called XYZ-EQ"):
+        angel_live.submit(d, risk_ok=True, http=AngelHTTP(SEARCH_OK, PLACE_OK), now=NOW, sender=angel_orders.send)
+    assert angel_live.history()[0]["status"] == "rejected"
+    d2 = draft_entry("SBIN.NS", 1, 500, "MIS")
+    angel_live.approve(d2, "BUY 1 SBIN", now=NOW)
+    bad = Resp(200, {"status": False, "errorcode": "AB4008", "message": "Insufficient funds"})
+    with pytest.raises(OrderError, match="Insufficient funds"):
+        angel_live.submit(d2, risk_ok=True, http=AngelHTTP(SEARCH_OK, bad), now=NOW, sender=angel_orders.send)
+
+
+def test_angel_static_ip_or_login_message(angel_live):
+    d = draft_entry("SBIN.NS", 1, 500, "MIS")
+    angel_live.approve(d, "BUY 1 SBIN", now=NOW)
+    with pytest.raises(OrderError, match="static IP"):
+        angel_live.submit(d, risk_ok=True, http=AngelHTTP(Resp(403, {"status": False, "message": "x"}), PLACE_OK),
+                          now=NOW, sender=angel_orders.send)

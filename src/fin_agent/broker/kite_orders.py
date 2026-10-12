@@ -24,7 +24,7 @@ from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import requests
 
@@ -163,11 +163,14 @@ class ApprovalBook:
             db.row_factory = sqlite3.Row
             return [dict(r) for r in db.execute("SELECT * FROM approvals ORDER BY approved_at DESC")]
 
-    def submit(self, draft: OrderDraft, risk_ok: bool | None, http=requests, now: datetime | None = None) -> str:
-        """Send an approved draft to Zerodha. Returns Zerodha's order id.
+    def submit(self, draft: OrderDraft, risk_ok: bool | None, http=requests, now: datetime | None = None,
+               sender: Callable[[OrderDraft, Any], str] | None = None) -> str:
+        """Send an approved draft. Returns the broker's order id.
 
         risk_ok: the risk engine's verdict for this trade, computed by the caller just before sending
         (required for BUY entries; None is refused for them). Exits (SELL stop-losses) don't need it.
+        sender: another broker's send step (e.g. broker/angel_orders.send); default Zerodha. Every check
+        above it (approval, expiry, live switch, risk rules) is the same for every broker.
         """
         now = now or datetime.now(timezone.utc)
         h = draft.digest()
@@ -184,6 +187,14 @@ class ApprovalBook:
         if draft.side == "BUY" and risk_ok is not True:
             self._set(h, "rejected", message="risk rules")
             raise OrderError("The risk rules don't allow this trade right now. Nothing was sent.")
+        if sender is not None:
+            try:
+                order_id = str(sender(draft, http))
+            except OrderError as exc:
+                self._set(h, "rejected", message=str(exc)[:200])
+                raise
+            self._set(h, "sent", order_id=order_id)
+            return order_id
         try:
             creds = Credentials.from_env()
             token = load_session()["access_token"]

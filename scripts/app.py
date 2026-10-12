@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 
 from fin_agent.data.fundamentals import FundamentalsError, Statements
 from fin_agent.analysis import alerts as alerts_mod
-from fin_agent.broker import angelone, kite_orders, zerodha
+from fin_agent.broker import angel_orders, angelone, kite_orders, zerodha
 from fin_agent.analysis import chart_marks as marks_mod
 from fin_agent.analysis import intraday_backtest as ibt
 from fin_agent.analysis import next_candle
@@ -979,14 +979,14 @@ def checklist_section(ticker: str, plan, daily: pd.DataFrame, chart: pd.DataFram
 
 
 def real_order_section(ticker: str, plan, interval: str, cost_per_side: float) -> None:
-    """Step 7: a real Zerodha order, drafted from the plan, sent only after you type it to approve."""
+    """Step 7: a real order (Angel One or Zerodha), drafted from the plan, sent only after you type it to approve."""
     if plan is None or not ticker.endswith(".NS"):
         return
     with st.expander("🟢 Place a real order (needs your typed approval)"):
         if not kite_orders.live_enabled():
             st.caption("Real orders are OFF. To allow them, add  FIN_AGENT_LIVE_TRADING=true  to .env and restart "
-                       "FinTray. Zerodha also requires a registered static IP for API orders (since April 2026); "
-                       "without one, Zerodha rejects the order and nothing is placed. Until then, place orders "
+                       "FinTray. Brokers also require a registered static IP for API orders (since April 2026); "
+                       "without one, the broker rejects the order and nothing is placed. Until then, place orders "
                        "yourself in Kite and import them in the Journal tab.")
             return
         tz = ZoneInfo("Asia/Kolkata")
@@ -996,9 +996,12 @@ def real_order_section(ticker: str, plan, interval: str, cost_per_side: float) -
         if live is None or not capital:
             st.warning("Set your trading capital in 📒 Journal → ⚡ Real trades first (the risk rules need it).")
             return
+        broker = st.selectbox("Broker", ["Angel One", "Zerodha"], key="order_broker",
+                              help="Log in to it today first (angelone.py --login or zerodha.py --login).")
+        sender = angel_orders.send if broker == "Angel One" else None
         c1, c2, c3, c4 = st.columns(4)
         product = c1.selectbox("Product", list(kite_orders.PRODUCTS), index=0 if interval != "1d" else 1,
-                               help="MIS = intraday (closed by Zerodha around 15:20), CNC = delivery.")
+                               help="MIS = intraday (closed by the broker around 15:20), CNC = delivery.")
         qty = int(c2.number_input("Quantity", min_value=1, value=max(1, int(plan.shares)), step=1, key="order_qty"))
         limit = c3.number_input("Limit price ₹", min_value=0.05, value=float(plan.entry), step=0.05, key="order_limit")
         stop = c4.number_input("Stop-loss ₹", min_value=0.05, value=float(plan.stop), step=0.05, key="order_stop")
@@ -1024,11 +1027,12 @@ def real_order_section(ticker: str, plan, interval: str, cost_per_side: float) -
             book = kite_orders.ApprovalBook()
             try:
                 book.approve(entry, typed)
-                oid = book.submit(entry, risk_ok=verdict.allowed)
+                oid = book.submit(entry, risk_ok=verdict.allowed, sender=sender)
             except kite_orders.OrderError as exc:
                 st.error(str(exc))
             else:
-                st.success(f"Entry order sent to Zerodha: order id {oid}. Check it in Kite. When it has FILLED, "
+                st.success(f"Entry order sent to {broker}: order id {oid}. Check it in the {broker} app. "
+                           "When it has FILLED, "
                            "place the stop-loss below.")
         st.markdown(f"**2. Stop-loss (after the entry fills):** {esc(stop_draft.describe())}")
         typed_stop = st.text_input(f"To approve, type exactly:  {stop_draft.confirmation()}", key="order_typed_stop")
@@ -1036,19 +1040,19 @@ def real_order_section(ticker: str, plan, interval: str, cost_per_side: float) -
             book = kite_orders.ApprovalBook()
             try:
                 book.approve(stop_draft, typed_stop)
-                oid = book.submit(stop_draft, risk_ok=None)
+                oid = book.submit(stop_draft, risk_ok=None, sender=sender)
             except kite_orders.OrderError as exc:
                 st.error(str(exc))
             else:
                 st.success(f"Stop-loss order sent: order id {oid}.")
         st.caption("Each approval works once, for this exact order, within 2 minutes. Limit and stop-limit orders "
                    "only (no market orders). A stop-limit may not fill if price gaps through it: watch your position. "
-                   "Target: sell yourself in Kite, or set a GTT there. The AI cannot place orders.")
+                   "Target: sell yourself in the broker app, or set a GTT there. The AI cannot place orders.")
         with st.form("cancel_order"):
             oid = st.text_input("Cancel an open order: order id")
             if st.form_submit_button("Cancel order") and oid.strip():
                 try:
-                    kite_orders.cancel(oid.strip())
+                    (angel_orders.cancel if broker == "Angel One" else kite_orders.cancel)(oid.strip())
                 except kite_orders.OrderError as exc:
                     st.error(str(exc))
                 else:

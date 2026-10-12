@@ -596,3 +596,21 @@ def test_real_order_needs_capital_then_typed_approval(app, monkeypatch, tmp_path
         return
     entry_btn.click().run()
     assert any("Not approved: type exactly" in e.value for e in app.error) and sent == []
+
+
+def test_scanned_tax_news_shows_in_the_alerts_tab(app, monkeypatch):
+    from datetime import datetime, timezone
+
+    from fin_agent.data import news as news_mod
+    from fin_agent.data.news import NewsItem, SourceStatus
+
+    def fake_collect(sources, hours=48, **kw):
+        return ([NewsItem("SEBI", "regulator", "CBDT notifies change to LTCG on listed equity", "https://x/1",
+                          datetime.now(timezone.utc))], [SourceStatus("SEBI", ok=True, entries=1, kept=1)])
+
+    monkeypatch.setattr(news_mod, "collect_news", fake_collect)
+    app.run()
+    assert not any("Possible tax-rule news" in m.value for m in app.markdown)
+    button(app, "Scan news now").click().run()
+    assert not app.exception
+    assert any("Possible tax-rule news (SEBI" in m.value for m in app.markdown)

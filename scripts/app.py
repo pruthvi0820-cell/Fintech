@@ -403,6 +403,10 @@ def events_tab() -> None:
         return
     with st.spinner("Reading the news feeds…"):
         items, statuses = recent_news(hours)
+    first = "news_items" not in st.session_state
+    st.session_state["news_items"] = items          # the Alerts tab checks these for tax-rule news
+    if first:
+        st.rerun()                                  # the Alerts tab is drawn earlier on the page
     failed = [s.source for s in statuses if not s.ok]
     if failed:
         st.caption(f"Feeds that failed this time: {', '.join(failed)}.")
@@ -477,6 +481,7 @@ def alerts_tab(portfolio) -> None:
         alerts, tickers = gather_alerts(watch, held, today, safe_bars, events=store, paper=get_paper(),
                                         journal=get_journal(), marks=marks_mod.load_marks(),
                                         calendar=st.session_state.get("calendar"),
+                                        news=st.session_state.get("news_items"),
                                         now=datetime.now(ZoneInfo("Asia/Kolkata")))
     if not tickers:
         st.info("Add stocks to your watchlist (above) or upload your holdings in the sidebar to get signal alerts.")

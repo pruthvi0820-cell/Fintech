@@ -81,6 +81,6 @@ def test_fetch_uses_the_getter():
 
 def test_global_feeds_on_only_when_verified():
     on = {s.name: s for s in SOURCES}
-    for name in ("CNBC World Markets", "CNBC Economy", "MarketWatch Top Stories"):
+    for name in ("CNBC World Markets", "CNBC Economy", "MarketWatch Top Stories", "Yahoo Finance India"):
         assert on[name].enabled and on[name].verified == "2026-10-12"
     assert not on["Yahoo Finance"].enabled and not on["Moneycontrol Latest"].enabled

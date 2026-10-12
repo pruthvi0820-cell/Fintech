@@ -200,12 +200,15 @@ def get_paper() -> paper_mod.PaperBook | None:
         return None
 
 
-def paper_trade_section(ticker: str, sig: dict, plan, last_close: float, cost_per_side: float) -> None:
+def paper_trade_section(ticker: str, sig: dict, plan, last_close: float, cost_per_side: float,
+                        interval: str = "1d") -> None:
     """Under the trade plan: practise this exact plan with virtual money."""
     if plan is None:
         return
+    intraday = interval != "1d"
     with st.form("paper_trade", clear_on_submit=True):
-        st.markdown("**🧪 Paper trade this plan** · virtual money, real (delayed) prices; see the Paper trading tab")
+        st.markdown("**🧪 Paper trade this plan** · virtual money, real (delayed) prices; see the Paper trading tab"
+                    + (f" · **intraday on {interval} candles**, squared off at 15:20 IST" if intraday else ""))
         shares = st.number_input("Shares", min_value=1, value=max(1, int(plan.shares)), step=1)
         reason = st.text_input("Why? (required)", max_chars=1000, placeholder="e.g. 4 of 5 conditions, practising")
         submitted = st.form_submit_button("Open paper trade")
@@ -214,10 +217,11 @@ def paper_trade_section(ticker: str, sig: dict, plan, last_close: float, cost_pe
     book = get_paper()
     if book is None:
         return
-    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
     try:
-        tid = book.open_trade(ticker, plan, last_close, sig, reason, today, shares=int(shares),
-                              cost_per_side=cost_per_side, rules=risk_engine.load_rules())
+        tid = book.open_trade(ticker, plan, last_close, sig, reason, now.date(), shares=int(shares),
+                              cost_per_side=cost_per_side, rules=risk_engine.load_rules(),
+                              now=now if intraday else None, intraday=intraday, interval=interval if intraday else None)
     except paper_mod.PaperError as exc:
         st.warning(str(exc))
     else:
@@ -260,22 +264,28 @@ def risk_rules_panel(book) -> None:
 
 
 def paper_tab() -> None:
-    st.caption("Practise with virtual money before risking real money. Exits are checked against each daily candle "
-               "after the buy, whenever this page opens; a gap below the stop exits at the open (a bigger loss), "
-               "and a day touching both stop and target counts as the stop. Nothing here can place real orders.")
+    st.caption("Practise with virtual money before risking real money. Swing trades are checked against each daily "
+               "candle after the buy; intraday trades against their 5m/15m/1h candles from the entry time, and "
+               "squared off at 15:20 IST if neither level is hit. Checks run whenever this page opens. A gap past "
+               "the stop exits at the open (a bigger loss), and a candle touching both stop and target counts as "
+               "the stop. Prices are delayed. Nothing here can place real orders.")
     book = get_paper()
     if book is None:
         return
     risk_rules_panel(book)
-    open_tickers = sorted(set(book.trades().query("status == 'open'")["ticker"]))
-    bars = {}
-    for tk in open_tickers:
+    open_rows = book.trades().query("status == 'open'")
+    bars, intraday_bars = {}, {}
+    for r in open_rows.itertuples():
         try:
-            bars[tk] = load_history(tk).bars
+            if getattr(r, "mode", "swing") == "intraday":
+                intraday_bars[r.ticker] = load_candles(r.ticker, r.interval)
+            else:
+                bars[r.ticker] = load_history(r.ticker).bars
         except market_data.MarketDataError as exc:
-            st.warning(f"{tk}: can't check stop/target now ({exc}).")
-    for msg in book.check_exits(bars):
+            st.warning(f"{r.ticker}: can't check stop/target now ({exc}).")
+    for msg in book.check_exits(bars, intraday_bars):
         st.success(msg)
+    bars.update(intraday_bars)
     prices = {tk: float(b["Close"].iloc[-1]) for tk, b in bars.items()}
     s = book.stats(prices)
     pct = lambda x: "–" if x is None else f"{x * 100:+.1f}%"   # noqa: E731
@@ -313,7 +323,10 @@ def paper_tab() -> None:
     if not open_.empty:
         st.markdown("**Open paper trades**")
         st.dataframe(pd.DataFrame([{
-            "#": r.id, "Stock": r.ticker, "Opened": r.opened_on, "Shares": r.shares, "Entry": r.entry,
+            "#": r.id, "Stock": r.ticker,
+            "Mode": "intraday " + str(r.interval) if getattr(r, "mode", "swing") == "intraday" else "swing",
+            "Opened": (r.opened_at or "")[11:16] + " " + r.opened_on if getattr(r, "opened_at", None) else r.opened_on,
+            "Shares": r.shares, "Entry": r.entry,
             "Stop": r.stop, "Target": r.target, "Now": prices.get(r.ticker, "–"),
             "P&L now": "–" if r.ticker not in prices else f"₹{r.shares * (prices[r.ticker] - r.entry):,.0f}",
         } for r in open_.itertuples()]), hide_index=True, width="stretch")
@@ -1173,8 +1186,7 @@ def chart_tab() -> None:
     checklist_section(hist.ticker, plan, bars, chart_bars, interval, cost / 100)
     real_order_section(hist.ticker, plan, interval, cost / 100)
     if intraday:
-        st.caption("Intraday plan: log the real trade in the 📒 Journal (or import it from Zerodha). Paper trading "
-                   "checks exits on daily candles, so it is for swing trades only.")
+        paper_trade_section(hist.ticker, sig, plan, float(chart_bars["Close"].iloc[-1]), cost / 100, interval)
     else:
         log_decision_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
         paper_trade_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)

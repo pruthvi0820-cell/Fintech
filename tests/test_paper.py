@@ -100,3 +100,68 @@ def test_reset_starts_again(book):
     assert book.trades().empty and book.cash() == 50_000 and book.start_cash() == 50_000
     with pytest.raises(PaperError):
         book.reset(0)
+
+
+# ---- intraday
+
+from datetime import datetime as _dt  # noqa: E402
+
+from fin_agent.portfolio.paper import IST, find_intraday_exit  # noqa: E402
+
+
+def intraday(rows, start="2026-10-13 10:00"):
+    idx = pd.date_range(start, periods=len(rows), freq="15min", tz=IST)
+    return pd.DataFrame(rows, columns=["Open", "High", "Low", "Close"], index=idx)
+
+
+ENTRY = _dt(2026, 10, 13, 10, 5, tzinfo=IST)
+
+
+def test_intraday_ignores_candles_before_entry_and_hits_target():
+    bars = intraday([(100, 120, 80, 100), (101, 103, 99, 102), (102, 111, 101, 110)])   # 10:00 candle is pre-entry
+    hit = find_intraday_exit(bars, ENTRY, stop=95, target=110)
+    assert hit.reason == "target" and hit.price == 110 and hit.at.strftime("%H:%M") == "10:30"
+
+
+def test_intraday_squares_off_at_1520():
+    bars = intraday([(101, 103, 99, 102)] * 25)          # 10:00 ... 16:00, never hits a level
+    hit = find_intraday_exit(bars, ENTRY, stop=95, target=110)
+    # candles start every 15 min from 10:00, so the first one at/after 15:20 starts at 15:30
+    assert hit.reason == "squared off 15:20" and hit.at.strftime("%H:%M") == "15:30" and hit.price == 101
+
+
+def test_intraday_square_off_from_last_close_when_data_skips_to_next_day():
+    today = intraday([(101, 103, 99, 102), (102, 104, 100, 103)])
+    tomorrow = intraday([(90, 91, 89, 90)], start="2026-10-14 09:15")
+    hit = find_intraday_exit(pd.concat([today, tomorrow]), ENTRY, stop=95, target=110)
+    assert hit.reason == "squared off (end of day)" and hit.price == 103 and hit.day == date(2026, 10, 13)
+
+
+def test_intraday_no_candles_after_entry_yet():
+    assert find_intraday_exit(intraday([(100, 101, 99, 100)]), ENTRY, 95, 110) is None
+
+
+def test_intraday_trade_opens_and_closes_with_times(book):
+    with pytest.raises(PaperError, match="needs the time"):
+        book.open_trade("X.NS", plan(), 100.0, {}, "r", date(2026, 10, 13), intraday=True)
+    tid = book.open_trade("X.NS", plan(), 100.0, {}, "r", date(2026, 10, 13), intraday=True, interval="15m",
+                          now=ENTRY)
+    row = book.trades().iloc[0]
+    assert row["mode"] == "intraday" and row["interval"] == "15m" and row["opened_at"].startswith("2026-10-13T10:05")
+    msgs = book.check_exits({}, {"X.NS": intraday([(100, 120, 80, 100), (99, 100, 94, 95)])})
+    assert msgs == [f"#{tid} X.NS: stop-loss on 2026-10-13 10:15 at ₹95.00 (P&L ₹-52.92)."]
+    assert book.trades().iloc[0]["closed_at"].startswith("2026-10-13T10:15")
+
+
+def test_old_files_get_the_intraday_columns(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.executescript("""CREATE TABLE trades (id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL,
+            opened_on TEXT NOT NULL, shares INTEGER NOT NULL, entry REAL NOT NULL, stop REAL NOT NULL,
+            target REAL NOT NULL, cost_per_side REAL NOT NULL, risk_amount REAL NOT NULL,
+            signal_said_buy INTEGER NOT NULL, signals_json TEXT NOT NULL, reason TEXT NOT NULL,
+            status TEXT NOT NULL, closed_on TEXT, exit_price REAL, exit_reason TEXT, pnl REAL, r_multiple REAL);""")
+    book = PaperBook(path)
+    book.open_trade("A.NS", plan(), 100.0, {}, "r", date(2026, 10, 1))
+    assert book.trades().iloc[0]["mode"] == "swing"

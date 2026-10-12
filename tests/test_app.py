@@ -526,14 +526,21 @@ def test_pre_trade_checklist_and_ai_explanation(app):
     assert any("coach-v1" in c.value for c in app.caption)
 
 
-def test_intraday_plan_uses_chart_candles_and_skips_paper(app):
+def test_intraday_plan_and_intraday_paper_trade(app, monkeypatch, tmp_path):
+    from fin_agent.portfolio import paper as paper_mod
+    real_check = paper_mod.check_trade
+    monkeypatch.setattr(paper_mod, "check_trade", lambda **kw: real_check(**{**kw, "now": None}))  # ignore the clock
     app.run()
     app.selectbox(key="chart_interval").set_value("15m").run()
     button(app, "Analyze").click().run()
     assert not app.exception
     assert any("intraday, 15m candles" in h.value for h in app.subheader)
-    assert any("log the real trade in the 📒 Journal" in c.value for c in app.caption)
-    assert not any(b.label == "Open paper trade" for b in app.button)
+    assert any("intraday on 15m candles" in m.value for m in app.markdown)
+    app.text_input[[t.label for t in app.text_input].index("Why? (required)")].set_value("practice")
+    button(app, "Open paper trade").click().run()          # a form sends its fields with the click
+    assert not app.exception
+    rows = paper_mod.PaperBook(tmp_path / "paper.sqlite3").trades()
+    assert list(rows["mode"]) == ["intraday"] and list(rows["interval"]) == ["15m"]
 
 
 def test_real_trades_section_add_fills_and_stop_banner(app):

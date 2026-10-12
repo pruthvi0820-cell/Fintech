@@ -8,6 +8,9 @@ Nothing here can reach a broker. Rules, chosen so paper results are never better
     the low touches the stop            -> out at the stop
     the high touches the target         -> out at the target
   If a day touches both, the stop is assumed to come first (we can't see the order inside a day).
+- Intraday trades (5m/15m/1h): same rules on the candles that START at or after the entry time;
+  if neither level is hit, squared off at the open of the first candle at/after 15:20 IST, like a
+  broker's intraday (MIS) square-off.
 - Checks run when the page is opened (there is no background service yet).
 Storage: journal/paper.sqlite3 (git-ignored), next to the real journal.
 """
@@ -19,7 +22,8 @@ import os
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +74,7 @@ class Exit:
     day: date
     price: float
     reason: str
+    at: datetime | None = None          # intraday exits: the candle's time (IST)
 
 
 def default_path() -> Path:
@@ -96,12 +101,53 @@ def find_exit(bars: pd.DataFrame, after: date, stop: float, target: float) -> Ex
     return None
 
 
+IST = ZoneInfo("Asia/Kolkata")
+SQUARE_OFF = time(15, 20)            # brokers close intraday (MIS) positions around this time
+
+
+def find_intraday_exit(bars: pd.DataFrame, opened_at: datetime, stop: float, target: float,
+                       square_off: time = SQUARE_OFF) -> Exit | None:
+    """The first intraday candle that STARTS at or after the entry time and reaches the stop or
+    target (same rules as daily: a gap through a level fills at the open, stop first if both). If
+    none does, the trade is squared off at the open of the first candle at or after `square_off`
+    on the entry day, or at the entry day's last close if the data has moved on to a later day."""
+    opened = opened_at.astimezone(IST)
+    last_same_day = None
+    for ts, row in bars.iterrows():
+        t = pd.Timestamp(ts)
+        t = (t.tz_localize("UTC") if t.tzinfo is None else t).tz_convert(IST).to_pydatetime()
+        if t < opened:
+            continue
+        o, h, low, c = (float(row[k]) for k in ("Open", "High", "Low", "Close"))
+        if t.date() > opened.date():                       # a new day: squared off at yesterday's last close
+            if last_same_day is not None:
+                return Exit(last_same_day[0].date(), last_same_day[1], "squared off (end of day)", last_same_day[0])
+            return Exit(t.date(), o, "squared off (end of day)", t)
+        if t.time() >= square_off:
+            return Exit(t.date(), o, f"squared off {square_off:%H:%M}", t)
+        if o <= stop:
+            return Exit(t.date(), o, "stop-loss (opened below it)", t)
+        if o >= target:
+            return Exit(t.date(), o, "target (opened above it)", t)
+        if low <= stop:
+            return Exit(t.date(), stop, "stop-loss", t)
+        if h >= target:
+            return Exit(t.date(), target, "target", t)
+        last_same_day = (t, c)
+    return None
+
+
 class PaperBook:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as db, db:
             db.executescript(_SCHEMA)
+            have = {r[1] for r in db.execute("PRAGMA table_info(trades)")}
+            for col, decl in (("mode", "TEXT NOT NULL DEFAULT 'swing'"), ("interval", "TEXT"),
+                              ("opened_at", "TEXT"), ("closed_at", "TEXT")):
+                if col not in have:                           # older files: add the intraday columns
+                    db.execute(f"ALTER TABLE trades ADD COLUMN {col} {decl}")
             db.execute("INSERT OR IGNORE INTO account (id, start_cash, started_at) VALUES (1, ?, ?)",
                        (DEFAULT_START_CASH, _now()))
 
@@ -136,9 +182,15 @@ class PaperBook:
     # ------------------------------------------------------------------ trades
     def open_trade(self, ticker: str, plan: TradePlan, price: float, signals: dict[str, Any], reason: str,
                    on: date, shares: int | None = None, cost_per_side: float = 0.0015,
-                   rules: RiskRules | None = None, now: datetime | None = None, intraday: bool = False) -> int:
+                   rules: RiskRules | None = None, now: datetime | None = None, intraday: bool = False,
+                   interval: str | None = None) -> int:
         """Open a paper trade. The risk engine's hard rules (analysis/risk_engine.py) must pass first;
-        with `rules` None the safe defaults apply. Capital for the % limits is the starting money."""
+        with `rules` None the safe defaults apply. Capital for the % limits is the starting money.
+
+        intraday=True: an intraday trade on `interval` candles, opened at `now` (required); its exits
+        are checked on those candles from that time, and it is squared off at 15:20 IST."""
+        if intraday and (now is None or not interval):
+            raise PaperError("An intraday paper trade needs the time and the candle size.")
         ticker, reason = (ticker or "").strip().upper(), (reason or "").strip()
         shares = int(shares if shares is not None else plan.shares)
         if not ticker:
@@ -174,13 +226,17 @@ class PaperBook:
         with closing(self._connect()) as db, db:
             cur = db.execute(
                 "INSERT INTO trades (ticker, opened_on, shares, entry, stop, target, cost_per_side, risk_amount, "
-                "signal_said_buy, signals_json, reason, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')",
+                "signal_said_buy, signals_json, reason, status, mode, interval, opened_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)",
                 (ticker, on.isoformat(), shares, float(price), plan.stop, plan.target, cost_per_side,
                  round(risk, 2), int(buy_score is not None and buy_score >= SIGNAL_BUY_SCORE),
-                 json.dumps({k: signals.get(k) for k in ("as_of", "buy_score", "sell_score", "reliable")}), reason))
+                 json.dumps({k: signals.get(k) for k in ("as_of", "buy_score", "sell_score", "reliable")}), reason,
+                 "intraday" if intraday else "swing", interval if intraday else None,
+                 now.astimezone(IST).isoformat() if intraday else None))
             return int(cur.lastrowid)
 
-    def close_trade(self, trade_id: int, price: float, reason: str, on: date) -> dict[str, float]:
+    def close_trade(self, trade_id: int, price: float, reason: str, on: date,
+                    at: datetime | None = None) -> dict[str, float]:
         if not price or price <= 0:
             raise PaperError("Exit price must be above 0.")
         with closing(self._connect()) as db, db:
@@ -191,22 +247,32 @@ class PaperBook:
             pnl = n * (price - entry) - c * n * (entry + price)
             r = pnl / row["risk_amount"] if row["risk_amount"] else None
             db.execute("UPDATE trades SET status = 'closed', closed_on = ?, exit_price = ?, exit_reason = ?, "
-                       "pnl = ?, r_multiple = ? WHERE id = ?",
+                       "pnl = ?, r_multiple = ?, closed_at = ? WHERE id = ?",
                        (on.isoformat(), float(price), reason, round(pnl, 2), None if r is None else round(r, 3),
-                        trade_id))
+                        None if at is None else at.astimezone(IST).isoformat(), trade_id))
         return {"pnl": round(pnl, 2), "r_multiple": r}
 
-    def check_exits(self, bars_by_ticker: dict[str, pd.DataFrame]) -> list[str]:
-        """Close open trades whose stop or target was reached. Returns what happened, in words."""
+    def check_exits(self, bars_by_ticker: dict[str, pd.DataFrame],
+                    intraday_bars: dict[str, pd.DataFrame] | None = None) -> list[str]:
+        """Close open trades whose stop or target was reached (intraday ones: or square-off time).
+        bars_by_ticker: daily candles for swing trades; intraday_bars: {ticker: candles of the trade's
+        interval} for intraday trades. Returns what happened, in words."""
         done = []
         for row in self.trades().query("status == 'open'").itertuples():
-            bars = bars_by_ticker.get(row.ticker)
-            if bars is None or bars.empty:
-                continue
-            hit = find_exit(bars, date.fromisoformat(row.opened_on), row.stop, row.target)
+            if getattr(row, "mode", "swing") == "intraday":
+                bars = (intraday_bars or {}).get(row.ticker)
+                if bars is None or bars.empty:
+                    continue
+                hit = find_intraday_exit(bars, datetime.fromisoformat(row.opened_at), row.stop, row.target)
+            else:
+                bars = bars_by_ticker.get(row.ticker)
+                if bars is None or bars.empty:
+                    continue
+                hit = find_exit(bars, date.fromisoformat(row.opened_on), row.stop, row.target)
             if hit:
-                res = self.close_trade(int(row.id), hit.price, hit.reason, hit.day)
-                done.append(f"#{row.id} {row.ticker}: {hit.reason} on {hit.day.isoformat()} at ₹{hit.price:,.2f} "
+                res = self.close_trade(int(row.id), hit.price, hit.reason, hit.day, hit.at)
+                when = f"{hit.day.isoformat()} {hit.at:%H:%M}" if hit.at else hit.day.isoformat()
+                done.append(f"#{row.id} {row.ticker}: {hit.reason} on {when} at ₹{hit.price:,.2f} "
                             f"(P&L ₹{res['pnl']:,.2f}).")
         return done
 

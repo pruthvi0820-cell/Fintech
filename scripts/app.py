@@ -1147,7 +1147,8 @@ def intraday_backtest_section() -> None:
             return
         st.caption("Signal on a candle's close, entry at the next candle's open, stop and target from ATR, stop "
                    "first if a candle touches both, no entries after 15:00 and square-off at 15:20 (NSE), one trade at "
-                   "a time, costs included. Compared with a no-skill baseline: entering at every allowed candle with the same "
+                   "a time, costs included. Compared with a no-skill baseline: entering at every allowed candle "
+                   "with the same "
                    "exits.")
         c1, c2 = st.columns([2, 1])
         strategy = c1.selectbox("Strategy", list(ibt.STRATEGIES), format_func=lambda k: ibt.STRATEGIES[k][0],

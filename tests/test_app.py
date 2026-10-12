@@ -511,7 +511,8 @@ def test_chart_patterns_table_is_shown(app):
     assert not app.exception
     assert any(e.label.startswith("📐 Chart patterns on this symbol (1d candles)") for e in app.expander)
     table = next(d.value for d in app.dataframe if "Fair rate (no edge)" in d.value.columns)
-    assert list(table["Pattern"]) == ["double bottom", "double top", "breakout", "breakdown"]
+    assert list(table["Pattern"]) == ["double bottom", "double top", "ascending triangle", "descending triangle",
+                                      "breakout", "breakdown"]
 
 
 def test_pre_trade_checklist_and_ai_explanation(app):

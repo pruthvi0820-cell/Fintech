@@ -67,7 +67,8 @@ def test_outcome_stop_first_and_unfinished():
 
 def test_measure_reports_every_kind_with_baseline():
     rows = {r["pattern"]: r for r in measure(make(w_shape()))}
-    assert set(rows) == {"double bottom", "double top", "breakout", "breakdown"}
+    assert set(rows) == {"double bottom", "double top", "ascending triangle", "descending triangle", "breakout",
+                         "breakdown"}
     db = rows["double bottom"]
     assert db["found"] == 1 and db["worked"] == 1 and db["work_rate"] == 1.0 and db["low"] < 1.0
     assert db["baseline_move"] is not None and rows["double top"]["found"] == 0
@@ -99,3 +100,49 @@ def test_gather_alerts_includes_patterns():
     p = [q for q in find_doubles(full) if q.kind == "double bottom"][0]
     alerts, _ = gather_alerts(["TCS.NS"], set(), date(2026, 10, 13), lambda tk: full.iloc[:p.known_at + 1])
     assert any(a.kind == "pattern" for a in alerts)
+
+
+def triangle_up():
+    """Flat top at 110, lows rising 95 -> 101 -> 105, then a break above 110 to 130."""
+    pts = [100, 110, 95, 110, 101, 110, 105, 130]
+    path = [np.linspace(a, b, 7)[:-1] for a, b in zip(pts, pts[1:])]
+    return np.r_[np.full(20, 100.0), np.concatenate(path), np.full(15, 125.0)]
+
+
+def test_ascending_triangle_found_and_confirmed():
+    from fin_agent.analysis.patterns import find_triangles
+    bars = make(triangle_up())
+    tri = [p for p in find_triangles(bars) if p.kind == "ascending triangle"]
+    assert tri, "no ascending triangle found"
+    p = tri[0]
+    close = bars["Close"].to_numpy()
+    assert abs(p.neckline - 110.2) < 0.5 and close[p.known_at] > p.neckline >= close[p.known_at - 1]
+    assert p.stop > 99 and p.target > p.neckline and outcome(bars, p) == "worked"
+
+
+def test_descending_triangle_is_the_mirror():
+    from fin_agent.analysis.patterns import find_triangles
+    assert [p.kind for p in find_triangles(make(220 - triangle_up()))] == ["descending triangle"]
+
+
+def test_no_triangle_when_lows_do_not_rise():
+    from fin_agent.analysis.patterns import find_triangles
+    pts = [100, 110, 95, 110, 95, 110, 95, 125]                    # flat lows: a rectangle, not a triangle
+    path = [np.linspace(a, b, 7)[:-1] for a, b in zip(pts, pts[1:])]
+    assert find_triangles(make(np.r_[np.full(20, 100.0), np.concatenate(path), np.full(15, 125.0)])) == []
+
+
+def test_overlaps_are_resolved_in_completion_order():
+    from fin_agent.analysis.patterns import _in_time_order
+    a = Pattern("double bottom", 1, 10, 30, 50, 100.0, 110.0, 90.0)     # starts first, completes LATER
+    b = Pattern("double bottom", 1, 20, 35, 40, 100.0, 110.0, 90.0)     # completes first
+    c = Pattern("double top", -1, 12, 33, 45, 100.0, 90.0, 110.0)       # another kind: independent
+    assert _in_time_order([a, b, c]) == [b, c]          # keeping a would use what happened after b
+
+
+def test_chance_rate_extremes():
+    from fin_agent.analysis.patterns import chance_rate
+    up = make(100 * 1.01 ** np.arange(200))
+    assert chance_rate(up, 1, 0.5, 5.0) == 1.0           # a steady rise reaches a near target first
+    assert chance_rate(up, -1, 0.5, 5.0) is None or chance_rate(up, -1, 0.5, 5.0) < 0.05
+    assert chance_rate(make([100] * 5), 1, 1, 1) is None

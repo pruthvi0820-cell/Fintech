@@ -107,18 +107,24 @@ def show_rules(title: str, rules: list[dict]) -> None:
         st.markdown(f"{'✅' if r['met'] else '⬜'} {r['text']} — `{r['detail']}`")
 
 
-def trade_plan_section(bars: pd.DataFrame, cost_per_side: float):
+def trade_plan_section(bars: pd.DataFrame, cost_per_side: float, interval: str = "1d"):
     """Risk calculator: how many shares, where the stop-loss and target are. Returns the plan or None."""
-    st.subheader("Trade plan (if you decide to buy)")
-    st.caption("Sizes the position so a stop-loss hit costs only the % of capital you choose. "
-               "Long only: delivery swing trades.")
+    intraday = interval != "1d"
+    st.subheader(f"Trade plan (if you decide to buy){' · intraday, ' + interval + ' candles' if intraday else ''}")
+    if intraday:
+        st.caption(f"Stop and target come from the volatility of {interval} candles (ATR of the last 14). Brokers "
+                   "close intraday (MIS) positions around 15:20 IST if you haven't; your risk rules block new "
+                   "intraday trades after the cut-off. Long only.")
+    else:
+        st.caption("Sizes the position so a stop-loss hit costs only the % of capital you choose. "
+                   "Long only: delivery swing trades.")
     c = st.columns(5)
     st.session_state.setdefault("capital", 100000.0)      # remembered while the page is open
     capital = c[0].number_input("Your capital ₹", min_value=0.0, step=10000.0, key="capital")
     risk = c[1].number_input("Risk per trade %", 0.1, 5.0, DEFAULT_RISK_PCT * 100, 0.1,
                              help="How much of your capital you accept losing if the stop-loss is hit.")
     stop_atr = c[2].number_input("Stop distance (× ATR)", 0.5, 6.0, 2.0, 0.5,
-                                 help="ATR is the average daily price range. 2× keeps the stop out of normal noise.")
+                                 help="ATR is the average range of one candle. 2× keeps the stop out of normal noise.")
     rr = c[3].number_input("Target (× risk)", 0.5, 10.0, 2.0, 0.5,
                            help="2 means the target is twice as far above entry as the stop is below it.")
     cap = c[4].number_input("Max position %", 1.0, 100.0, 25.0, 1.0,
@@ -777,7 +783,8 @@ def checklist_section(ticker: str, plan, daily: pd.DataFrame, chart: pd.DataFram
         ticker=ticker, entry=plan.entry, stop=plan.stop, target=plan.target, shares=plan.shares,
         capital=book.start_cash(), cost_per_side=cost_per_side,
         day_results=[float(x) for x in df.loc[(df["status"] == "closed") & (df["closed_on"] == today), "pnl"]],
-        trades_today=int((df["opened_on"] == today).sum()), rules=risk_engine.load_rules())
+        trades_today=int((df["opened_on"] == today).sum()), rules=risk_engine.load_rules(),
+        now=now if interval != "1d" else None, intraday=interval != "1d")
     items = build_checklist(plan, daily, chart, interval, verdict, st.session_state.get("calendar"), now)
     facts = checklist_summary(items)
     c = facts["counts"]
@@ -980,10 +987,15 @@ def chart_tab() -> None:
     levels = find_levels(chart_bars)
     recent_patterns = patterns_mod.latest(chart_bars, within=30)
 
-    plan = trade_plan_section(bars, cost / 100)
+    intraday = interval != "1d"
+    plan = trade_plan_section(chart_bars if intraday else bars, cost / 100, interval)
     checklist_section(hist.ticker, plan, bars, chart_bars, interval, cost / 100)
-    log_decision_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
-    paper_trade_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
+    if intraday:
+        st.caption("Intraday plan: log the real trade in the 📒 Journal (or import it from Zerodha). Paper trading "
+                   "checks exits on daily candles, so it is for swing trades only.")
+    else:
+        log_decision_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
+        paper_trade_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
     marks = marks_mod.load_marks().get(hist.ticker, [])
     try:
         intraday = interval != "1d"

@@ -523,3 +523,13 @@ def test_pre_trade_checklist_and_ai_explanation(app):
     button(app, "Explain the checklist with AI").click().run()
     assert not app.exception
     assert any("coach-v1" in c.value for c in app.caption)
+
+
+def test_intraday_plan_uses_chart_candles_and_skips_paper(app):
+    app.run()
+    app.selectbox(key="chart_interval").set_value("15m").run()
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    assert any("intraday, 15m candles" in h.value for h in app.subheader)
+    assert any("log the real trade in the 📒 Journal" in c.value for c in app.caption)
+    assert not any(b.label == "Open paper trade" for b in app.button)

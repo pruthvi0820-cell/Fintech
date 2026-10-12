@@ -31,7 +31,9 @@ from fin_agent.analysis.events import EventStore, default_path as events_path, d
 from fin_agent.data import econ_calendar, market_data
 from fin_agent.data.news import collect_news
 from fin_agent.data.news_sources import get_sources
+from fin_agent.broker import zerodha
 from fin_agent.notify import telegram
+from fin_agent.portfolio import live_trades
 from fin_agent.pipelines.alerts import gather_alerts
 from fin_agent.portfolio.journal import Journal, default_path as journal_path
 from fin_agent.portfolio.paper import PaperBook, default_path as paper_path
@@ -94,13 +96,19 @@ def run_once(token: str, chat_id: str, scan_news: bool = True, now: datetime | N
     if scan_news:
         items, _ = collect_news(get_sources(), hours=24, max_items=300)
         store.save(detect_events(items))
+    live = live_trades.LiveBook(live_trades.default_path())
+    try:                                                    # today's real trades, if logged in to Zerodha
+        live.import_zerodha(zerodha.connect().trades())
+    except zerodha.KiteError:
+        pass                                                # not set up or not logged in today: manual fills only
     try:
         calendar = econ_calendar.fetch()
     except econ_calendar.CalendarError:
         calendar = []                                       # the rest of the alerts still go out
     alerts, _ = gather_alerts(load_watchlist(), set(), now.astimezone(IST).date(), bars, events=store,
                               paper=PaperBook(paper_path()), journal=Journal(journal_path()), news=items,
-                              marks=load_marks(), calendar=calendar, now=now)
+                              marks=load_marks(), calendar=calendar, now=now, live=live,
+                              capital=live_trades.load_capital())
     path = sent_path()
     sent = load_sent(path, now)
     fresh = new_alerts(alerts, sent)

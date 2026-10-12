@@ -48,6 +48,7 @@ from fin_agent.knowledge import library as library_mod
 from fin_agent.knowledge import notes as notes_mod
 from fin_agent.portfolio import paper as paper_mod
 from fin_agent.portfolio.performance import performance
+from fin_agent.portfolio import live_trades
 from fin_agent.portfolio.allocation import (TargetError, drifts, health_flags, load_targets, save_targets,
                                             sector_mix)
 from fin_agent.portfolio.tax_plan import PlanError as TaxPlanError, gain_harvest_plan, simulate_sale
@@ -633,7 +634,105 @@ def summary_section(ticker: str, last_close: float, result, cost_per_side: float
                "(deals, demand, government decisions) comes in a later step, with sources.")
 
 
+def get_live() -> live_trades.LiveBook | None:
+    try:
+        return live_trades.LiveBook(live_trades.default_path())
+    except (OSError, sqlite3.Error) as exc:
+        st.error(f"Can't open the real-trades file: {exc}")
+        return None
+
+
+def real_trades_section() -> None:
+    """Real (intraday) trades: imported from Zerodha or typed in; stats and today's risk status."""
+    book = get_live()
+    if book is None:
+        return
+    st.subheader("⚡ Real trades")
+    st.caption("Place trades yourself in your broker app; FinTray imports them from Zerodha (read-only) or you type "
+               "them in. Buys and sells are paired first-in-first-out into round trips. Costs are an estimate "
+               f"({live_trades.DEFAULT_COST_PER_SIDE * 100:.2f}% per side). Nothing here can place an order.")
+    tz = ZoneInfo("Asia/Kolkata")
+    now = datetime.now(tz)
+    c1, c2 = st.columns([1, 1])
+    capital = c1.number_input("Trading capital ₹", min_value=0.0, step=10000.0,
+                              value=float(live_trades.load_capital() or 0.0), key="live_capital",
+                              help="Used for the daily loss limit and risk %. Saved on this computer.")
+    if capital and capital != live_trades.load_capital():
+        live_trades.save_capital(capital)
+    c2.write("")
+    if c2.button("Import today's trades from Zerodha"):
+        try:
+            with st.spinner("Reading today's trades from Zerodha…"):
+                n = book.import_zerodha(zerodha.connect().trades())
+            st.success(f"Imported {n} new fill(s)." if n else "No new fills from Zerodha.")
+        except zerodha.KiteError as exc:
+            st.error(str(exc))
+    with st.expander("Type a fill yourself (any broker)"):
+        with st.form("live_fill", clear_on_submit=True):
+            f1, f2, f3, f4 = st.columns(4)
+            sym = f1.text_input("Symbol", placeholder="TCS")
+            side = f2.selectbox("Side", ["BUY", "SELL"])
+            qty = f3.number_input("Quantity", min_value=0.0, step=1.0)
+            price = f4.number_input("Price ₹", min_value=0.0, step=0.05)
+            f5, f6, f7 = st.columns(3)
+            day = f5.date_input("Date", value=now.date())
+            at = f6.time_input("Time (IST)", value=now.time().replace(second=0, microsecond=0))
+            product = f7.selectbox("Product", ["MIS", "CNC", "NRML"], help="MIS = intraday, CNC = delivery.")
+            if st.form_submit_button("Add fill"):
+                try:
+                    book.add_fill(sym, side, qty, price, datetime.combine(day, at, tzinfo=tz), product)
+                except live_trades.LiveTradeError as exc:
+                    st.error(str(exc))
+                else:
+                    st.success(f"Added {side} {qty:g} {sym.upper()} at ₹{price:,.2f}.")
+
+    trips = book.round_trips()
+    if not trips:
+        st.info("No real trades yet. Import from Zerodha after trading, or type a fill.")
+        return
+    rules = risk_engine.load_rules(today=now.date())
+    pnls = live_trades.day_results(trips, now.date())
+    losses = [x for x in pnls if x < 0]
+    limit = rules.daily_loss_pct * capital if capital else None
+    stopped = len(losses) >= rules.max_losses_per_day or (limit is not None and -sum(losses) >= limit)
+    status = (f"Today: {len(losses)} of {rules.max_losses_per_day} losses, P&L ₹{sum(pnls):,.0f}"
+              + (f", ₹{-sum(losses):,.0f} of ₹{limit:,.0f} daily loss limit used." if limit else "."))
+    (st.error if stopped else st.info)(("⛔ STOP TRADING TODAY. " if stopped else "") + status)
+
+    table = live_trades.as_table(trips)
+    perf = performance(table, capital or 1.0)
+    if perf["trades"]:
+        k = st.columns(5)
+        closed = table[table["status"] == "closed"]
+        k[0].metric("Round trips", perf["trades"])
+        k[1].metric("Win rate", f"{(closed['pnl'] > 0).mean() * 100:.0f}%")
+        k[2].metric("Expectancy per trade", f"₹{perf['expectancy']:,.0f}")
+        k[3].metric("Max drawdown", f"₹{perf['max_drawdown']:,.0f}")
+        k[4].metric("Total P&L", f"₹{closed['pnl'].sum():,.0f}")
+        if perf["too_few"]:
+            st.caption(f"Only {perf['trades']} closed round trip(s): at least 10, ideally 30+, are needed before "
+                       "these numbers mean much.")
+        for flag in perf["tilt"]:
+            st.warning("🧠 " + flag)
+    st.dataframe(table[["id", "ticker", "direction", "qty", "entry", "exit", "opened_on", "opened_at", "closed_at",
+                        "pnl", "r_multiple"]].rename(columns={"r_multiple": "R"}), hide_index=True, width="stretch")
+    with st.expander("Record the stop you planned (gives each trade its R)"):
+        pick = st.selectbox("Round trip", [f"#{t.id} {t.symbol} {t.direction} {t.qty:g} @ {t.entry:,.2f}"
+                                           for t in trips], key="live_stop_pick")
+        stop = st.number_input("Planned stop ₹", min_value=0.0, step=0.05, key="live_stop_value")
+        if st.button("Save stop"):
+            trip = trips[int(pick.split()[0][1:]) - 1]
+            try:
+                book.set_stop(trip.entry_fill, stop)
+            except live_trades.LiveTradeError as exc:
+                st.error(str(exc))
+            else:
+                st.success(f"Saved stop ₹{stop:,.2f} for #{trip.id}.")
+    st.divider()
+
+
 def journal_tab() -> None:
+    real_trades_section()
     journal = get_journal()
     if journal is None:
         return

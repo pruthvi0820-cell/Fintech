@@ -13,6 +13,7 @@ Sources of alerts:
   the rules and the user's /store tax notes, never an automatic change
 - the user's own chart marks (analysis/chart_marks.py), crossed or near
 - high-impact economic releases in the next hour (data/econ_calendar.py)
+- real trades today vs the 2-loss stop and daily loss limit (portfolio/live_trades.py)
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ OFFICIAL_CATEGORIES = frozenset({"regulator", "government", "central bank"})
 @dataclass(frozen=True)
 class Alert:
     level: str               # "high" | "medium" | "info"
-    kind: str                # "signal" | "event" | "paper" | "tax" | "tax-news" | "mark" | "calendar"
+    kind: str                # "signal" | "event" | "paper" | "tax" | "tax-news" | "mark" | "calendar" | "risk"
     ticker: str
     text: str
 
@@ -158,6 +159,25 @@ def calendar_alerts(events: list[Any], now: Any, minutes: int = 60) -> list[Aler
         mins = max(0, int((e.when - now).total_seconds() // 60))
         out.append(Alert("high", "calendar", e.currency, f"High-impact event in {mins} min: {e.label()}. Prices can "
                                                          "jump around it; many intraday traders wait until after."))
+    return out
+
+
+def loss_limit_alerts(day_pnls: list[float], rules: Any, capital: float | None, today: date) -> list[Alert]:
+    """Real trades today vs your risk rules: 2-loss stop, daily loss limit (and a 75% early warning)."""
+    losses = [p for p in day_pnls if p < 0]
+    lost = -sum(losses)
+    out = []
+    if len(losses) >= rules.max_losses_per_day:
+        out.append(Alert("high", "risk", "RISK", f"{len(losses)} losing trades today ({today.isoformat()}): your "
+                                                  f"{rules.max_losses_per_day}-loss stop is reached. Stop trading today."))
+    if capital:
+        limit = rules.daily_loss_pct * capital
+        if lost >= limit:
+            out.append(Alert("high", "risk", "RISK", f"Today's losses ₹{lost:,.0f} reached your daily limit "
+                                                      f"₹{limit:,.0f}. Stop trading today."))
+        elif lost >= 0.75 * limit:
+            out.append(Alert("medium", "risk", "RISK", f"Today's losses ₹{lost:,.0f} are {lost / limit * 100:.0f}% "
+                                                        f"of your daily limit ₹{limit:,.0f}."))
     return out
 
 

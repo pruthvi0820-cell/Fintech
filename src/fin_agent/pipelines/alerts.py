@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import date, datetime, timedelta
-from typing import Callable
+from typing import Any, Callable
 
 import pandas as pd
 
@@ -19,6 +19,8 @@ from fin_agent.analysis.signals import latest_signals
 from fin_agent.portfolio.journal import Journal
 from fin_agent.portfolio.lots import build_lots, lot_rows, trades_from_journal
 from fin_agent.portfolio.paper import PaperBook
+from fin_agent.portfolio.live_trades import day_results
+from fin_agent.analysis.risk_engine import load_rules
 
 BarsLoader = Callable[[str], "pd.DataFrame | None"]
 
@@ -27,7 +29,7 @@ def gather_alerts(watchlist: list[str], held: set[str], today: date, bars: BarsL
                   events: EventStore | None = None, paper: PaperBook | None = None,
                   journal: Journal | None = None, news: list | None = None,
                   marks: dict[str, list[Mark]] | None = None, calendar: list | None = None,
-                  now: datetime | None = None) -> tuple[list[rules.Alert], list[str]]:
+                  now: datetime | None = None, live: Any = None, capital: float | None = None) -> tuple[list[rules.Alert], list[str]]:
     """(alerts sorted most important first, the tickers whose signals were checked)."""
     tickers = sorted(set(watchlist) | held)
     signals = {}
@@ -59,4 +61,10 @@ def gather_alerts(watchlist: list[str], held: set[str], today: date, bars: BarsL
         alerts += mark_alerts(marks, {tk: bars(tk) for tk in marks})
     if calendar and now is not None:
         alerts += rules.calendar_alerts(calendar, now)
+    if live is not None:                         # a LiveBook: real trades closed today vs the risk rules
+        try:
+            pnls = day_results(live.round_trips(), today)
+            alerts += rules.loss_limit_alerts(pnls, load_rules(today=today), capital, today)
+        except (OSError, sqlite3.Error):
+            pass
     return rules.sort_alerts(alerts), tickers

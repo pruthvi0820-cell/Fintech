@@ -63,6 +63,7 @@ def test_page_loads_with_examples_and_no_errors(app):
     assert [b.label for b in app.button] == ["Add to watchlist", "Load world markets", "Load economic calendar",
                                               "Analyze", "Run candle test", "Load fundamentals",
                                               "Scan news now", "Save risk rules",
+                                              "Import today's trades from Zerodha", "Add fill",
                                               "How is RELIANCE.NS doing?",
                                               "What is RSI?", "Is my portfolio diversified?",
                                               "Load my Zerodha holdings"]
@@ -533,3 +534,26 @@ def test_intraday_plan_uses_chart_candles_and_skips_paper(app):
     assert any("intraday, 15m candles" in h.value for h in app.subheader)
     assert any("log the real trade in the 📒 Journal" in c.value for c in app.caption)
     assert not any(b.label == "Open paper trade" for b in app.button)
+
+
+def test_real_trades_section_add_fills_and_stop_banner(app):
+    from datetime import time as t
+    app.run()
+    assert any("No real trades yet" in i.value for i in app.info)
+
+    def fill(sym, side, qty, price, hh, mm):
+        app.text_input[[x.label for x in app.text_input].index("Symbol")].set_value(sym)
+        app.selectbox[[x.label for x in app.selectbox].index("Side")].set_value(side)
+        app.number_input[[x.label for x in app.number_input].index("Quantity")].set_value(qty)
+        app.number_input[[x.label for x in app.number_input].index("Price ₹")].set_value(price)
+        app.time_input[0].set_value(t(hh, mm))
+        next(b for b in app.button if b.label == "Add fill").click().run()
+        assert not app.exception
+
+    fill("AAA", "BUY", 10, 100.0, 9, 30)
+    fill("AAA", "SELL", 10, 95.0, 9, 45)
+    fill("AAA", "BUY", 10, 100.0, 10, 0)
+    fill("AAA", "SELL", 10, 95.0, 10, 15)
+    assert any("STOP TRADING TODAY" in e.value for e in app.error)
+    table = next(d.value for d in app.dataframe if "direction" in d.value.columns)
+    assert len(table) == 2 and list(table["direction"]) == ["long", "long"]

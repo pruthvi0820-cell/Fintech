@@ -143,7 +143,9 @@ def _stock(ticker: str, client: LLMClient, include_news: bool,
 
 def _portfolio(question: str, client: LLMClient, portfolio: Portfolio | None, stream: dict) -> Answer:
     if portfolio is None:
-        return Answer("notice", "Upload your holdings CSV in the sidebar first, then ask again.")
+        return Answer("notice", "No holdings loaded yet. In the sidebar, upload your holdings CSV or click "
+                                "**Load my Zerodha holdings**, then ask again. (An account with no stocks has "
+                                "nothing to analyse yet.)")
     try:
         snap = portfolio_snapshot(portfolio)
     except PortfolioError as exc:

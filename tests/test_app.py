@@ -83,7 +83,7 @@ def test_portfolio_question_without_upload_asks_for_csv(app):
     app.run()
     button(app, "Is my portfolio diversified?").click().run()
     assert not app.exception
-    assert any("Upload your holdings CSV" in m.value for m in app.markdown)
+    assert any("No holdings loaded yet" in m.value for m in app.markdown)
 
 
 def test_chart_tab_shows_signals_chart_and_backtest(app):
@@ -297,7 +297,7 @@ def test_portfolio_health_asks_for_holdings_first(app):
     app.run()
     assert not app.exception
     assert any(h.value == "🧭 Portfolio health" for h in app.subheader)
-    assert any("Upload your holdings CSV in the sidebar" in i.value for i in app.info)
+    assert any("Load your holdings in the sidebar (CSV upload or Zerodha)" in i.value for i in app.info)
 
 
 def test_paper_trade_from_the_chart_tab_shows_in_the_paper_tab(app):

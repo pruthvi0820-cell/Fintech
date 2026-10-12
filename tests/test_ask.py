@@ -93,7 +93,7 @@ def test_tutor_route_is_labelled_unchecked():
 def test_portfolio_question_without_upload_does_not_call_the_model():
     client = FakeClient()
     a = answer("Is my portfolio diversified?", client)
-    assert a.kind == "notice" and "Upload your holdings CSV" in a.markdown and client.calls == []
+    assert a.kind == "notice" and "No holdings loaded yet" in a.markdown and client.calls == []
 
 
 def test_portfolio_answer_is_numerically_checked():

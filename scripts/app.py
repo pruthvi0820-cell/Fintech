@@ -838,7 +838,7 @@ def portfolio_health_section(portfolio) -> None:
     st.divider()
     st.subheader("🧭 Portfolio health")
     if portfolio is None:
-        st.info("Upload your holdings CSV in the sidebar to see your mix by stock and sector, and set targets.")
+        st.info("Load your holdings in the sidebar (CSV upload or Zerodha) to see your mix by stock and sector, and set targets.")
         return
     try:
         snap = portfolio_snapshot(portfolio)

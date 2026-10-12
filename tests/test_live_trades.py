@@ -122,3 +122,38 @@ def test_gather_alerts_uses_real_trades(book, tmp_path, monkeypatch):
         book.add_fill("A", "SELL", 10, 95, at(9, 25 + i * 10))
     alerts, _ = gather_alerts([], set(), D, lambda tk: None, live=book, capital=100_000)
     assert [a.kind for a in alerts] == ["risk"] and "2-loss stop" in alerts[0].text
+
+
+ANGEL = (b"Symbol,Trade Date,Trade Time,Trade Type,Quantity,Price,Product\n"
+         b"TCS-EQ,13-10-2026,09:31:05,BUY,2,3000.5,INTRADAY\n"
+         b"TCS-EQ,13-10-2026,10:02:00,SELL,2,3010,INTRADAY\n")
+
+
+def test_tradebook_csv_import_and_dedupe(book):
+    assert book.import_tradebook(ANGEL) == (2, 0)
+    assert book.import_tradebook(ANGEL) == (0, 2)
+    (t,) = book.round_trips(cost_per_side=0.0)
+    assert t.symbol == "TCS" and t.pnl == pytest.approx(19.0) and t.opened.strftime("%H:%M") == "09:31"
+
+
+def test_tradebook_without_times_keeps_file_order(book):
+    csv = (b"symbol,date,type,qty,price\nINFY,2026-10-13,buy,5,1500\nINFY,2026-10-13,sell,5,1490\n"
+           b"INFY,2026-10-13,buy,5,1495\nINFY,2026-10-13,sell,5,1505\n")
+    book.import_tradebook(csv)
+    trips = book.round_trips(cost_per_side=0.0)
+    assert [t.pnl for t in trips] == [-50.0, 50.0]
+
+
+def test_identical_fills_in_one_file_are_kept(book):
+    csv = b"symbol,date,type,qty,price\nSBIN,2026-10-13,buy,1,500\nSBIN,2026-10-13,buy,1,500\n"
+    assert book.import_tradebook(csv) == (2, 0)
+
+
+@pytest.mark.parametrize("data, msg", [
+    (b"name,qty\nTCS,1\n", "doesn't look like a tradebook"),
+    (b"symbol,date,type,qty,price\nTCS,someday,buy,1,100\n", r"1 row\(s\) have a missing"),
+    (b"symbol,date,type,qty,price\n", "No buy or sell rows"),
+])
+def test_bad_tradebooks(book, data, msg):
+    with pytest.raises(LiveTradeError, match=msg):
+        book.import_tradebook(data)

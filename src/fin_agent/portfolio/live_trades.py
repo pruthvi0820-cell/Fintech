@@ -12,8 +12,10 @@ Storage: journal/live_trades.sqlite3 (git-ignored). Nothing here can place an or
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import sqlite3
 from collections import defaultdict, deque
 from contextlib import closing
@@ -101,6 +103,78 @@ def _ist(ts: Any) -> datetime:
     return t.to_pydatetime()
 
 
+_TIME_COLS = {"tradetime", "executiontime", "orderexecutiontime", "time", "exchangetime", "tradedatetime",
+              "filltime", "exchangetimestamp"}
+_PRODUCT_COLS = {"product", "producttype", "segmenttype", "ordertypeproduct"}
+
+
+def _when(date_text: Any, time_text: Any = None) -> datetime | None:
+    """A broker's date (+ optional time) as IST. Year-first dates are read exactly; others day-first."""
+    d = str(date_text or "").strip()
+    t = str(time_text or "").strip() if time_text is not None else ""
+    if not d or d.lower() == "nan":
+        return None
+    text = f"{d} {t}".strip() if t and t.lower() != "nan" and t not in d else d
+    try:
+        ts = pd.to_datetime(text, dayfirst=not re.match(r"^\d{4}-\d{2}-\d{2}", text))
+    except (ValueError, TypeError):
+        return None
+    return _ist(ts)
+
+
+def parse_tradebook_fills(data: bytes) -> list[tuple]:
+    """Fills from any broker's tradebook CSV (Angel One, Upstox, Groww, Zerodha...), as rows ready for
+    the fills table. Headers are matched loosely; a row that can't be read stops the import (partial
+    data would pair trades wrongly). Without a time column, the file's row order is kept (export it
+    oldest first)."""
+    from fin_agent.portfolio.holdings import _SERIES_SUFFIX, _norm, _number, _read_csv
+    from fin_agent.portfolio.lots import _BUY, _COLUMNS, _SELL, MAX_TRADES
+    df = _read_csv(data)
+    if len(df) > MAX_TRADES:
+        raise LiveTradeError(f"More than {MAX_TRADES} rows; export a shorter period.")
+    found: dict[str, str] = {}
+    for col in df.columns:
+        key = _norm(col)
+        for fld, names in _COLUMNS.items():
+            if key in names and fld not in found:
+                found[fld] = col
+        if key in _TIME_COLS and "time" not in found and col != found.get("date"):
+            found["time"] = col
+        if key in _PRODUCT_COLS and "product" not in found:
+            found["product"] = col
+    missing = [f for f in ("symbol", "date", "side", "quantity", "price") if f not in found]
+    if missing:
+        raise LiveTradeError(f"This doesn't look like a tradebook: no {', '.join(missing)} column. Found: "
+                             f"{', '.join(map(str, df.columns))}.")
+    rows, bad, seen = [], [], {}
+    for i, r in df.iterrows():
+        symbol = _SERIES_SUFFIX.sub("", str(r[found["symbol"]] or "").strip().upper())
+        if not symbol or symbol == "NAN":
+            continue
+        side_raw = str(r[found["side"]] or "").strip().lower()
+        side = "BUY" if side_raw in _BUY else "SELL" if side_raw in _SELL else None
+        qty, price = _number(r[found["quantity"]]), _number(r[found["price"]])
+        when = _when(r[found["date"]], r[found["time"]] if "time" in found else None)
+        if when is not None and when.hour == when.minute == when.second == 0:
+            when = when.replace(microsecond=min(int(i), 999_999))   # no time given: keep the file's row order
+        if side is None or when is None or not qty or qty <= 0 or not price or price <= 0:
+            bad.append(f"line {int(i) + 2}")
+            continue
+        product = str(r[found["product"]]).strip().upper() if "product" in found else "?"
+        base = f"{symbol}|{side}|{qty}|{price}|{when.isoformat()}"
+        seen[base] = seen.get(base, 0) + 1                    # identical fills in one file stay separate
+        fid = "csv:" + hashlib.sha1(f"{base}|{seen[base]}".encode()).hexdigest()[:16]
+        rows.append((fid, "", symbol, side, product if product and product != "NAN" else "?", float(abs(qty)),
+                     float(price), when.isoformat(), "csv"))
+    if bad:
+        shown = ", ".join(bad[:10]) + (" …" if len(bad) > 10 else "")
+        raise LiveTradeError(f"{len(bad)} row(s) have a missing or unreadable date, side, quantity or price: {shown}. "
+                             "Nothing was imported.")
+    if not rows:
+        raise LiveTradeError("No buy or sell rows were found in the file.")
+    return rows
+
+
 class LiveBook:
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -132,6 +206,18 @@ class LiveBook:
             before = db.total_changes
             db.executemany("INSERT OR IGNORE INTO fills VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", good)
             return db.total_changes - before
+
+    def import_tradebook(self, data: bytes) -> tuple[int, int]:
+        """Any broker's tradebook CSV. Returns (new fills, already imported)."""
+        try:
+            rows = parse_tradebook_fills(data)
+        except ValueError as exc:            # PortfolioError from the CSV reader, LiveTradeError from here
+            raise LiveTradeError(str(exc)) from None
+        with closing(self._connect()) as db, db:
+            before = db.total_changes
+            db.executemany("INSERT OR IGNORE INTO fills VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+            new = db.total_changes - before
+        return new, len(rows) - new
 
     def add_fill(self, symbol: str, side: str, qty: float, price: float, when: datetime, product: str = "MIS") -> str:
         symbol, side = (symbol or "").strip().upper(), (side or "").strip().upper()

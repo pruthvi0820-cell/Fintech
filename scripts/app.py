@@ -699,6 +699,17 @@ def real_trades_section() -> None:
             st.success(f"Imported {n} new fill(s)." if n else "No new fills from Zerodha.")
         except zerodha.KiteError as exc:
             st.error(str(exc))
+    with st.expander("Import a tradebook CSV (Angel One, Upstox, Groww, any broker)"):
+        st.caption("Download your tradebook (or 'trade history') as CSV from your broker's website, oldest first, "
+                   "and upload it. Fills already imported are skipped, so uploading the same file again is safe.")
+        tb = st.file_uploader("Tradebook CSV", type=["csv"], key="live_tradebook")
+        if tb is not None and st.button("Import tradebook"):
+            try:
+                new, dup = book.import_tradebook(tb.getvalue())
+            except live_trades.LiveTradeError as exc:
+                st.error(str(exc))
+            else:
+                st.success(f"Imported {new} new fill(s)" + (f"; {dup} were already in the journal." if dup else "."))
     with st.expander("Type a fill yourself (any broker)"):
         with st.form("live_fill", clear_on_submit=True):
             f1, f2, f3, f4 = st.columns(4)

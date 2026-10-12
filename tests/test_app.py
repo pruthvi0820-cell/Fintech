@@ -27,7 +27,7 @@ class FakeClient:
         return LLMResult(text, "fake", 3, 4)
 
 
-def fake_history(ticker, period="2y"):
+def fake_history(ticker, period="2y", interval="1d"):
     if ticker.startswith("ZZZ"):
         raise market_data.MarketDataError(f"{ticker}: no data after 3 attempts.")
     rng = np.random.default_rng(5)
@@ -60,7 +60,8 @@ def test_page_loads_with_examples_and_no_errors(app):
     app.run()
     assert not app.exception
     assert app.title[0].value == "FinTray"
-    assert [b.label for b in app.button] == ["Add to watchlist", "Analyze", "Load fundamentals", "Scan news now",
+    assert [b.label for b in app.button] == ["Add to watchlist", "Analyze", "Run candle test", "Load fundamentals",
+                                              "Scan news now",
                                               "How is RELIANCE.NS doing?",
                                               "What is RSI?", "Is my portfolio diversified?",
                                               "Load my Zerodha holdings"]
@@ -411,3 +412,22 @@ def test_zerodha_button_without_setup_explains_and_with_session_loads(app, monke
     assert not app.exception
     assert any("From Zerodha at" in c.value for c in app.caption)
     assert any(m.label == "Total value (latest price)" and m.value == "₹6,600" for m in app.metric)
+
+
+def test_next_candle_test_runs_on_a_currency_pair(app):
+    app.run()
+    app.selectbox(key="nc_symbol").set_value("USD/INR").run()
+    button(app, "Run candle test").click().run()
+    assert not app.exception
+    shown = " ".join(m.value for m in app.markdown)
+    assert "USDINR=X, 15m candles" in shown and "must be right **54.9%**" in shown
+    table = app.dataframe[-1].value
+    assert table["Rule"].iloc[0].startswith("RSI below 30") and len(table) == 5
+
+
+def test_currency_symbols_are_not_given_nse_suffix(app):
+    app.run()
+    app.text_input(key="chart_raw").set_value("usdinr=x").run()
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    assert app.session_state["chart_ticker"] == "USDINR=X"

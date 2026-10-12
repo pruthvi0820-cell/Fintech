@@ -30,6 +30,7 @@ from fin_agent.data.fundamentals import FundamentalsError, Statements
 from fin_agent.analysis import alerts as alerts_mod
 from fin_agent.broker import zerodha
 from fin_agent.analysis import chart_marks as marks_mod
+from fin_agent.analysis import next_candle
 from fin_agent.analysis import events as events_mod
 from fin_agent.data import tax_rules
 from fin_agent.data.news import collect_news
@@ -67,6 +68,11 @@ def load_history(ticker: str) -> market_data.PriceHistory:
     return market_data.fetch_history(ticker, period="2y")
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def load_candles(ticker: str, interval: str) -> pd.DataFrame:
+    return market_data.fetch_history(ticker, period=next_candle.TIMEFRAMES[interval], interval=interval).bars
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_long_closes(ticker: str) -> pd.Series | None:
     """All the daily closes Yahoo has (often 20+ years), for long holding-period records."""
@@ -83,7 +89,7 @@ def load_fundamentals(ticker: str, file_bytes: bytes | None, file_name: str | No
 
 def normalise_ticker(raw: str) -> str:
     t = raw.strip().upper()
-    return t if ("." in t or t.startswith("^") or not t) else f"{t}.NS"
+    return t if ("." in t or "=" in t or t.startswith("^") or not t) else f"{t}.NS"   # "=X": currency pairs
 
 
 def show_rules(title: str, rules: list[dict]) -> None:
@@ -604,6 +610,47 @@ def marks_section(ticker: str, last_close: float, marks: list) -> None:
                     st.rerun()
 
 
+def next_candle_section() -> None:
+    """Measure whether simple rules guessed the next candle's direction in real past data."""
+    with st.expander("🎲 Does RSI / SMA predict the next candle? (test on real past data)"):
+        st.caption("Each rule guesses up or down for the next candle using only candles up to now; FinTray counts "
+                   "how often it was right. Rupee currency pairs are what Indians may trade legally (NSE currency "
+                   "futures and options, through a SEBI-registered broker). Apps like Olymp Trade or XM are not.")
+        chart = st.session_state.get("chart_ticker")
+        choices = ([f"Chart's stock ({chart})"] if chart else []) + list(next_candle.INR_PAIRS) + ["Nifty 50"]
+        c1, c2, c3 = st.columns(3)
+        pick = c1.selectbox("Symbol", choices, key="nc_symbol")
+        interval = c2.selectbox("Candle", list(next_candle.TIMEFRAMES), index=2, key="nc_interval",
+                                help="Yahoo keeps 1-minute candles for about 7 days, 5-15 minutes for about 60 "
+                                     "days, 1 hour for about 2 years.")
+        payout = c3.slider("Payout on a win (%)", 50, 100, 82, key="nc_payout",
+                           help="Fixed-payout up/down trades pay this share of your stake on a win and take all "
+                                "of it on a loss.") / 100
+        if not st.button("Run candle test"):
+            return
+        ticker = (chart if pick.startswith("Chart's") else next_candle.INR_PAIRS.get(pick, "^NSEI"))
+        try:
+            with st.spinner(f"Fetching {interval} candles for {ticker}…"):
+                bars = load_candles(ticker, interval)
+            results, facts = next_candle.score_rules(bars, payout)
+        except (market_data.MarketDataError, ValueError) as exc:
+            st.error(str(exc))
+            return
+        st.markdown(f"**{ticker}, {interval} candles: {int(facts['candles']):,} candles from "
+                    f"{bars.index[0]:%d %b %Y} to {bars.index[-1]:%d %b %Y}.** Candles went up "
+                    f"{facts['up_share'] * 100:.1f}% of the time. To break even at a {payout * 100:.0f}% payout you "
+                    f"must be right **{facts['break_even'] * 100:.1f}%** of the time.")
+        pct = lambda x: "–" if x is None else f"{x * 100:.1f}%"   # noqa: E731
+        st.dataframe(pd.DataFrame([{
+            "Rule": r.rule, "Guesses": r.signals, "Right": pct(r.win_rate),
+            "Likely true range": "–" if r.low is None else f"{r.low * 100:.1f}–{r.high * 100:.1f}%",
+            "Per ₹100 bet": "–" if r.pnl_per_100 is None else f"₹{r.pnl_per_100:+.2f}",
+            "What it means": r.verdict} for r in results]), hide_index=True, width="stretch")
+        st.caption("Next candle = its close compared with this close; level closes are skipped. Short candles include "
+                   "the jump from one day's last candle to the next day's first. Past results describe the past only. "
+                   "Use paper trading before risking money.")
+
+
 def chart_tab() -> None:
     c1, c2 = st.columns([3, 1])
     raw = c1.text_input("NSE symbol", value=st.session_state.get("chart_ticker", "RELIANCE.NS"), key="chart_raw",
@@ -1011,6 +1058,7 @@ with tab_alerts:
 
 with tab_chart:
     chart_tab()
+    next_candle_section()
 
 with tab_long:
     longterm_tab()

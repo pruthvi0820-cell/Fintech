@@ -35,7 +35,8 @@ from fin_agent.analysis import risk_engine
 from fin_agent.analysis.levels import find_levels
 from fin_agent.analysis.regime import SUITS, classify_regime
 from fin_agent.analysis import events as events_mod
-from fin_agent.data import tax_rules
+from fin_agent.data import econ_calendar, tax_rules
+from fin_agent.data.global_markets import board as world_board_rows
 from fin_agent.data.news import collect_news
 from fin_agent.data.news_sources import get_sources
 from fin_agent.data.fundamentals import fetch_quote
@@ -436,7 +437,9 @@ def alerts_tab(portfolio) -> None:
         store = None
     with st.spinner("Checking your stocks…"):
         alerts, tickers = gather_alerts(watch, held, today, safe_bars, events=store, paper=get_paper(),
-                                        journal=get_journal(), marks=marks_mod.load_marks())
+                                        journal=get_journal(), marks=marks_mod.load_marks(),
+                                        calendar=st.session_state.get("calendar"),
+                                        now=datetime.now(ZoneInfo("Asia/Kolkata")))
     if not tickers:
         st.info("Add stocks to your watchlist (above) or upload your holdings in the sidebar to get signal alerts.")
     if not alerts:
@@ -447,6 +450,58 @@ def alerts_tab(portfolio) -> None:
     st.caption(f"Checked {len(tickers)} stock(s) at {datetime.now(ZoneInfo('Asia/Kolkata')):%H:%M} IST. Prices are "
                "delayed; events come from the Events tab's scans. Phone alerts: Telegram, via scripts/alerts_runner.py "
                "(see the README).")
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def world_board() -> list[dict]:
+    def fetch(symbol: str):
+        try:
+            return market_data.fetch_history(symbol, period="5d", retries=1).bars
+        except market_data.MarketDataError:
+            return None
+    return world_board_rows(fetch)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def calendar_events() -> list:
+    return econ_calendar.fetch()
+
+
+def world_tab() -> None:
+    st.caption("What the rest of the world did, and the scheduled events that can move prices. Indian markets often "
+               "follow overnight moves in the US and Asia, crude oil and the dollar. Prices are delayed.")
+    if st.button("Load world markets"):
+        st.session_state["world_loaded"] = True
+    if st.session_state.get("world_loaded"):
+        with st.spinner("Fetching world markets…"):
+            rows = world_board()
+        st.dataframe(pd.DataFrame([{
+            "Group": r["group"], "Market": r["name"],
+            "Last": "–" if r["last"] is None else f"{r['last']:,.2f}",
+            "Change": "–" if r["change"] is None else f"{r['change'] * 100:+.2f}%",
+            "As of": r["as_of"] or "–", "Why it matters": r["why"]} for r in rows]), hide_index=True, width="stretch")
+        missing = [r["symbol"] for r in rows if r["last"] is None]
+        if missing:
+            st.caption(f"No data for {', '.join(missing)} right now.")
+    st.subheader("📅 Economic calendar (this week, IST)")
+    if st.button("Load economic calendar"):
+        try:
+            with st.spinner("Fetching the calendar…"):
+                st.session_state["calendar"] = calendar_events()
+        except econ_calendar.CalendarError as exc:
+            st.error(f"{exc} The rest of FinTray works without it.")
+        else:
+            st.rerun()                  # so the Alerts tab (drawn earlier on the page) sees the calendar too
+    events = st.session_state.get("calendar")
+    if events is not None:
+        now = datetime.now(ZoneInfo("Asia/Kolkata"))
+        coming = econ_calendar.upcoming(events, now)
+        if not coming:
+            st.info("No high- or medium-impact events left this week for USD, INR, EUR, GBP, JPY or CNY.")
+        for e in coming:
+            st.markdown(("🔴 " if e.impact == "High" else "🟠 ") + esc(e.label()))
+        st.caption("🔴 high impact, 🟠 medium. Source: the free weekly feed published for Forex Factory (unofficial). "
+                   "Within an hour of a 🔴 event, the Alerts tab and Telegram warn you.")
 
 
 def get_notes() -> notes_mod.NoteStore | None:
@@ -1136,12 +1191,16 @@ def statements_company(file_bytes: bytes) -> str:
 
 # ---------------------------------------------------------------- page
 st.title(APP_NAME)
-tab_alerts, tab_chart, tab_long, tab_events, tab_paper, tab_journal, tab_chat = st.tabs(
-    ["🔔 Alerts", "📈 Chart & signals", "🏦 Long-term", "🔭 Events", "🧪 Paper trading", "📒 Journal", "💬 Ask AI"])
+tab_alerts, tab_world, tab_chart, tab_long, tab_events, tab_paper, tab_journal, tab_chat = st.tabs(
+    ["🔔 Alerts", "🌍 World", "📈 Chart & signals", "🏦 Long-term", "🔭 Events", "🧪 Paper trading", "📒 Journal",
+     "💬 Ask AI"])
 
 with tab_alerts:
     alerts_tab(portfolio)
 
+
+with tab_world:
+    world_tab()
 
 with tab_chart:
     chart_tab()

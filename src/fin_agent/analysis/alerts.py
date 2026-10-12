@@ -12,6 +12,7 @@ Sources of alerts:
 - news that may change a tax rule (capital gains, STT, Finance Bill...): a cue to check and update
   the rules and the user's /store tax notes, never an automatic change
 - the user's own chart marks (analysis/chart_marks.py), crossed or near
+- high-impact economic releases in the next hour (data/econ_calendar.py)
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ OFFICIAL_CATEGORIES = frozenset({"regulator", "government", "central bank"})
 @dataclass(frozen=True)
 class Alert:
     level: str               # "high" | "medium" | "info"
-    kind: str                # "signal" | "event" | "paper" | "tax" | "tax-news" | "mark"
+    kind: str                # "signal" | "event" | "paper" | "tax" | "tax-news" | "mark" | "calendar"
     ticker: str
     text: str
 
@@ -146,6 +147,17 @@ def tax_news_alerts(items: list[Any], today: date, days: int = EVENT_DAYS) -> li
                          f"Possible tax-rule news ({it.source}, {it.published.date().isoformat()}, mentions "
                          f"'{m.group(0)}'): {it.title}. If a rule changed, check the official text and update "
                          "your notes (/store tax: ...)."))
+    return out
+
+
+def calendar_alerts(events: list[Any], now: Any, minutes: int = 60) -> list[Alert]:
+    """High-impact economic releases starting within `minutes` (events from data/econ_calendar.py)."""
+    from fin_agent.data.econ_calendar import soon
+    out = []
+    for e in soon(events, now, minutes):
+        mins = max(0, int((e.when - now).total_seconds() // 60))
+        out.append(Alert("high", "calendar", e.currency, f"High-impact event in {mins} min: {e.label()}. Prices can "
+                                                         "jump around it; many intraday traders wait until after."))
     return out
 
 

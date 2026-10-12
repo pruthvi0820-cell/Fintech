@@ -82,6 +82,24 @@ SOURCES: list[FeedSource] = [
         "Bank of Japan", "https://www.boj.or.jp/en/rss/whatsnew.xml", "central bank", verified="2026-10-11",
         region="Japan", tz=ZoneInfo("Asia/Tokyo"), notes="What's new (English).",
     ),
+    # Global markets news. Added 2026-10-12, NOT yet verified: they stay off until
+    # `python scripts/news_digest.py --check-sources` shows them working on the user's computer.
+    FeedSource(
+        "CNBC World Markets", "https://www.cnbc.com/id/100727362/device/rss/rss.html", "market", enabled=False,
+        region="Global", tz=ZoneInfo("America/New_York"), notes="World markets headlines. Unverified.",
+    ),
+    FeedSource(
+        "CNBC Economy", "https://www.cnbc.com/id/20910258/device/rss/rss.html", "market", enabled=False,
+        region="United States", tz=ZoneInfo("America/New_York"), notes="US economy and data releases. Unverified.",
+    ),
+    FeedSource(
+        "MarketWatch Top Stories", "https://feeds.content.dowjones.io/public/rss/mw_topstories", "market",
+        enabled=False, region="Global", tz=ZoneInfo("America/New_York"), notes="Unverified.",
+    ),
+    FeedSource(
+        "Yahoo Finance", "https://finance.yahoo.com/news/rssindex", "market", enabled=False, region="Global",
+        tz=ZoneInfo("America/New_York"), notes="Unverified.",
+    ),
     FeedSource(
         "Moneycontrol Latest", "https://www.moneycontrol.com/rss/latestnews.xml", "market",
         enabled=False,

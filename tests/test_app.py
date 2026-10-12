@@ -60,12 +60,13 @@ def test_page_loads_with_examples_and_no_errors(app):
     app.run()
     assert not app.exception
     assert app.title[0].value == "FinTray"
-    assert [b.label for b in app.button] == ["Add to watchlist", "Analyze", "Run candle test", "Load fundamentals",
+    assert [b.label for b in app.button] == ["Add to watchlist", "Load world markets", "Load economic calendar",
+                                              "Analyze", "Run candle test", "Load fundamentals",
                                               "Scan news now", "Save risk rules",
                                               "How is RELIANCE.NS doing?",
                                               "What is RSI?", "Is my portfolio diversified?",
                                               "Load my Zerodha holdings"]
-    assert [t.label for t in app.tabs] == ["🔔 Alerts", "📈 Chart & signals", "🏦 Long-term", "🔭 Events",
+    assert [t.label for t in app.tabs] == ["🔔 Alerts", "🌍 World", "📈 Chart & signals", "🏦 Long-term", "🔭 Events",
                                            "🧪 Paper trading", "📒 Journal", "💬 Ask AI"]
     assert any("cannot place orders" in c.value for c in app.caption)
 
@@ -468,3 +469,24 @@ def test_paper_tab_shows_expectancy_and_tilt(app, tmp_path):
     labels = [m.label for m in app.metric]
     assert {"Expectancy per trade", "Max drawdown", "Longest losing streak"} <= set(labels)
     assert any("right after it lost" in w.value for w in app.warning)
+
+
+def test_world_tab_board_and_calendar(app, monkeypatch):
+    import json as _json
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from fin_agent.data import econ_calendar
+    when = (datetime.now(ZoneInfo("Asia/Kolkata")) + timedelta(minutes=30)).isoformat()
+    feed = [{"title": "CPI m/m", "country": "USD", "date": when, "impact": "High", "forecast": "0.3%",
+             "previous": "0.2%"}]
+    monkeypatch.setattr(econ_calendar, "http_get", lambda url: _json.dumps(feed).encode())
+    app.run()
+    button(app, "Load world markets").click().run()
+    assert not app.exception
+    table = next(d.value for d in app.dataframe if "Why it matters" in d.value.columns)
+    assert "S&P 500" in list(table["Market"])
+    button(app, "Load economic calendar").click().run()
+    assert not app.exception
+    shown = " ".join(m.value for m in app.markdown)
+    assert "🔴" in shown and "USD CPI m/m (forecast 0.3%, previous 0.2%)" in shown
+    assert "High-impact event in" in shown                      # the Alerts tab uses the loaded calendar

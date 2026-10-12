@@ -28,7 +28,7 @@ from fin_agent import config  # noqa: F401  (loads .env, where the Telegram toke
 from fin_agent.analysis.alerts import Alert, load_watchlist, watchlist_path
 from fin_agent.analysis.chart_marks import load_marks
 from fin_agent.analysis.events import EventStore, default_path as events_path, detect_events
-from fin_agent.data import market_data
+from fin_agent.data import econ_calendar, market_data
 from fin_agent.data.news import collect_news
 from fin_agent.data.news_sources import get_sources
 from fin_agent.notify import telegram
@@ -94,9 +94,13 @@ def run_once(token: str, chat_id: str, scan_news: bool = True, now: datetime | N
     if scan_news:
         items, _ = collect_news(get_sources(), hours=24, max_items=300)
         store.save(detect_events(items))
+    try:
+        calendar = econ_calendar.fetch()
+    except econ_calendar.CalendarError:
+        calendar = []                                       # the rest of the alerts still go out
     alerts, _ = gather_alerts(load_watchlist(), set(), now.astimezone(IST).date(), bars, events=store,
                               paper=PaperBook(paper_path()), journal=Journal(journal_path()), news=items,
-                              marks=load_marks())
+                              marks=load_marks(), calendar=calendar, now=now)
     path = sent_path()
     sent = load_sent(path, now)
     fresh = new_alerts(alerts, sent)

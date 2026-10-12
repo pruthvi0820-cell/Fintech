@@ -7,7 +7,7 @@ Price loading is passed in: the page uses its 15-minute cache, the runner a per-
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Callable
 
 import pandas as pd
@@ -26,7 +26,8 @@ BarsLoader = Callable[[str], "pd.DataFrame | None"]
 def gather_alerts(watchlist: list[str], held: set[str], today: date, bars: BarsLoader, *,
                   events: EventStore | None = None, paper: PaperBook | None = None,
                   journal: Journal | None = None, news: list | None = None,
-                  marks: dict[str, list[Mark]] | None = None) -> tuple[list[rules.Alert], list[str]]:
+                  marks: dict[str, list[Mark]] | None = None, calendar: list | None = None,
+                  now: datetime | None = None) -> tuple[list[rules.Alert], list[str]]:
     """(alerts sorted most important first, the tickers whose signals were checked)."""
     tickers = sorted(set(watchlist) | held)
     signals = {}
@@ -56,4 +57,6 @@ def gather_alerts(watchlist: list[str], held: set[str], today: date, bars: BarsL
         alerts += rules.tax_news_alerts(news, today)
     if marks:                    # your chart marks: checked for every marked stock, watched or not
         alerts += mark_alerts(marks, {tk: bars(tk) for tk in marks})
+    if calendar and now is not None:
+        alerts += rules.calendar_alerts(calendar, now)
     return rules.sort_alerts(alerts), tickers

@@ -500,3 +500,12 @@ def test_scanner_tab_scans_currency_pairs(app):
     assert not app.exception
     table = next(d.value for d in app.dataframe if "Rel. volume" in d.value.columns)
     assert set(table["Symbol"]) == {"USDINR=X", "EURINR=X", "GBPINR=X", "JPYINR=X"}
+
+
+def test_chart_patterns_table_is_shown(app):
+    app.run()
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    assert any(e.label.startswith("📐 Chart patterns on this symbol (1d candles)") for e in app.expander)
+    table = next(d.value for d in app.dataframe if "Fair rate (no edge)" in d.value.columns)
+    assert list(table["Pattern"]) == ["double bottom", "double top", "breakout", "breakdown"]

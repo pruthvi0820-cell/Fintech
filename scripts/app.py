@@ -35,6 +35,7 @@ from fin_agent.analysis import risk_engine
 from fin_agent.analysis.levels import find_levels
 from fin_agent.analysis.regime import SUITS, classify_regime
 from fin_agent.analysis.scanner import scan
+from fin_agent.analysis import patterns as patterns_mod
 from fin_agent.analysis import events as events_mod
 from fin_agent.data import econ_calendar, tax_rules
 from fin_agent.data.global_markets import board as world_board_rows
@@ -735,6 +736,37 @@ def regime_section(bars: pd.DataFrame, interval: str) -> None:
             st.caption(SUITS[reg["regime"]] + " This describes the market; it is not a signal to trade.")
 
 
+def patterns_section(bars: pd.DataFrame, interval: str, recent: list) -> None:
+    with st.expander(f"📐 Chart patterns on this symbol ({interval} candles), measured on its own history"):
+        for pt in recent:
+            st.info(f"Recent: {pt.kind} (expects {'up' if pt.direction > 0 else 'down'}), target {pt.target:,.2f}, "
+                    f"stop {pt.stop:,.2f}. Drawn on the chart.")
+        rows = patterns_mod.measure(bars)
+        pct = lambda x: "–" if x is None else f"{x * 100:.0f}%"   # noqa: E731
+        mv = lambda x: "–" if x is None else f"{x * 100:+.2f}%"   # noqa: E731
+
+        def verdict(r):
+            if r["worked"] + r["failed"] < 20:
+                return "Too few finished patterns to judge."
+            if r["low"] is not None and r["fair_rate"] is not None and r["low"] > r["fair_rate"]:
+                return "Beat the fair rate even at the low end of its range here."
+            return "No edge shown: within what chance gives."
+        st.dataframe(pd.DataFrame([{
+            "Pattern": r["pattern"], "Found": r["found"], "Worked": r["worked"], "Failed": r["failed"],
+            "Unfinished": r["unfinished"], "Worked %": pct(r["work_rate"]),
+            "Likely range": "–" if r["low"] is None else f"{r['low'] * 100:.0f}–{r['high'] * 100:.0f}%",
+            "Fair rate (no edge)": pct(r["fair_rate"]),
+            f"Avg move next {patterns_mod.HORIZON} candles": mv(r["avg_move"]),
+            "Avg move from any candle": mv(r["baseline_move"]), "What it means": verdict(r),
+        } for r in rows]), hide_index=True, width="stretch")
+        st.caption(f"Worked = reached the target before the stop within {patterns_mod.HORIZON} candles. Fair rate = how "
+                   "often that would happen on a market with no edge, given each pattern's target and stop distances. "
+                   "Patterns are counted only from the candle where all of them was visible (no hindsight). Rules: "
+                   "double bottom/top = two lows/highs within half an ATR, 5–60 candles apart, neckline 1.5+ ATR away, "
+                   "confirmed by a close through the neckline; breakout/breakdown = a close beyond the previous 20 "
+                   "candles.")
+
+
 def scanner_tab() -> None:
     from fin_agent.data.themes import THEMES
     st.caption("Runs the same checks over many symbols and lists the ones with something going on: breakouts, "
@@ -880,6 +912,7 @@ def chart_tab() -> None:
             interval = "1d"
     regime_section(chart_bars, interval)
     levels = find_levels(chart_bars)
+    recent_patterns = patterns_mod.latest(chart_bars, within=30)
 
     plan = trade_plan_section(bars, cost / 100)
     log_decision_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
@@ -888,8 +921,11 @@ def chart_tab() -> None:
     try:
         intraday = interval != "1d"
         shown = chart_bars.tz_convert("Asia/Kolkata") if intraday else chart_bars
+        drawn = [{"x": shown.index[pt.known_at], "y": pt.entry, "label": pt.kind, "up": pt.direction > 0,
+                  "target": pt.target} for pt in recent_patterns]
         fig = candle_chart(shown, f"{hist.ticker} — {interval} candles", None if intraday else result, plan, marks,
-                           levels, intraday_nse=intraday and hist.ticker.endswith((".NS", ".BO", "^NSEI")))
+                           levels, intraday_nse=intraday and hist.ticker.endswith((".NS", ".BO", "^NSEI")),
+                           patterns=drawn)
     except ImportError:
         st.error('The chart library is not installed. Stop the page (Ctrl+C) and run:  pip install -e ".[app]"  '
                  "then start it again. Everything else on this page works without it.")
@@ -898,6 +934,7 @@ def chart_tab() -> None:
         st.caption("✏️ Draw with the tools at the top right of the chart (line, freehand, box, eraser). Drawings "
                    "disappear when the page reloads; to keep a level, save it as a mark below.")
     marks_section(hist.ticker, float(bars["Close"].iloc[-1]), marks)
+    patterns_section(chart_bars, interval, recent_patterns)
 
     st.subheader("How these rules did on this stock (backtest)")
     st.caption(f"{result.start} to {result.end}. Buy at the next day's open when at least {entry} buy "

@@ -77,3 +77,25 @@ def test_latest_only_recent():
     bars = make(w_shape())
     assert latest(bars, within=5) == [] or all(p.known_at >= len(bars) - 5 for p in latest(bars, within=5))
     assert any(p.kind == "double bottom" for p in latest(bars, within=40))
+
+
+def test_pattern_alert_only_on_the_candle_it_completes():
+    from fin_agent.analysis.alerts import pattern_alerts
+    full = make(np.r_[np.full(40, 100.0), w_shape()])
+    p = [q for q in find_doubles(full) if q.kind == "double bottom"][0]
+    upto = full.iloc[:p.known_at + 1]
+    alerts = pattern_alerts("TCS.NS", upto)            # the close also breaks the 20-candle high: 2 alerts
+    (a,) = [x for x in alerts if "double bottom" in x.text]
+    assert a.kind == "pattern" and a.text.startswith("TCS.NS: double bottom just completed (expects up)")
+    assert "Too few past cases" in a.text
+    assert pattern_alerts("TCS.NS", full.iloc[:p.known_at + 2]) == []      # next candle: no repeat
+    assert pattern_alerts("TCS.NS", full.iloc[:30]) == []                  # too little data
+
+
+def test_gather_alerts_includes_patterns():
+    from datetime import date
+    from fin_agent.pipelines.alerts import gather_alerts
+    full = make(np.r_[np.full(40, 100.0), w_shape()])
+    p = [q for q in find_doubles(full) if q.kind == "double bottom"][0]
+    alerts, _ = gather_alerts(["TCS.NS"], set(), date(2026, 10, 13), lambda tk: full.iloc[:p.known_at + 1])
+    assert any(a.kind == "pattern" for a in alerts)

@@ -14,6 +14,7 @@ Sources of alerts:
 - the user's own chart marks (analysis/chart_marks.py), crossed or near
 - high-impact economic releases in the next hour (data/econ_calendar.py)
 - real trades today vs the 2-loss stop and daily loss limit (portfolio/live_trades.py)
+- chart patterns completed on the latest candle of a watched or held stock (analysis/patterns.py)
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ OFFICIAL_CATEGORIES = frozenset({"regulator", "government", "central bank"})
 @dataclass(frozen=True)
 class Alert:
     level: str               # "high" | "medium" | "info"
-    kind: str                # "signal" | "event" | "paper" | "tax" | "tax-news" | "mark" | "calendar" | "risk"
+    kind: str                # "signal" | "event" | "paper" | "tax" | "tax-news" | "mark" | "calendar" | "risk" | "pattern"
     ticker: str
     text: str
 
@@ -178,6 +179,28 @@ def loss_limit_alerts(day_pnls: list[float], rules: Any, capital: float | None, 
         elif lost >= 0.75 * limit:
             out.append(Alert("medium", "risk", "RISK", f"Today's losses ₹{lost:,.0f} are {lost / limit * 100:.0f}% "
                                                         f"of your daily limit ₹{limit:,.0f}."))
+    return out
+
+
+def pattern_alerts(ticker: str, bars: pd.DataFrame) -> list[Alert]:
+    """A chart pattern that became visible on the latest candle, with this stock's own record for it."""
+    from fin_agent.analysis import patterns
+    if bars is None or len(bars) < 60:
+        return []
+    fresh = [p for p in patterns.latest(bars, within=1)]
+    if not fresh:
+        return []
+    record = {r["pattern"]: r for r in patterns.measure(bars)}
+    out = []
+    for p in fresh:
+        r = record.get(p.kind, {})
+        decided = r.get("worked", 0) + r.get("failed", 0)
+        hist = (f" On this stock's history it reached its target first {r['work_rate'] * 100:.0f}% of {decided} times "
+                f"(no-edge rate {r['fair_rate'] * 100:.0f}%)." if decided >= 5 and r.get("fair_rate") is not None
+                else " Too few past cases on this stock to judge it.")
+        out.append(Alert("medium", "pattern", ticker,
+                         f"{ticker}: {p.kind} just completed (expects {'up' if p.direction > 0 else 'down'}), target "
+                         f"₹{p.target:,.2f}, stop ₹{p.stop:,.2f}.{hist}"))
     return out
 
 

@@ -32,12 +32,14 @@ def gather_alerts(watchlist: list[str], held: set[str], today: date, bars: BarsL
                   now: datetime | None = None, live: Any = None, capital: float | None = None) -> tuple[list[rules.Alert], list[str]]:
     """(alerts sorted most important first, the tickers whose signals were checked)."""
     tickers = sorted(set(watchlist) | held)
-    signals = {}
+    signals: dict = {}
+    pattern_hits: list[rules.Alert] = []
     for tk in tickers:
         b = bars(tk)
         if b is not None and not b.empty:
             signals[tk] = latest_signals(b)
-    alerts = rules.signal_alerts(signals, held)
+            pattern_hits.extend(rules.pattern_alerts(tk, b))
+    alerts = rules.signal_alerts(signals, held) + pattern_hits
     if events is not None:
         try:
             saved = events.recent(today - timedelta(days=rules.EVENT_DAYS))

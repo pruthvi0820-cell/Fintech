@@ -34,6 +34,7 @@ from fin_agent.analysis import next_candle
 from fin_agent.analysis import risk_engine
 from fin_agent.analysis.levels import find_levels
 from fin_agent.analysis.regime import SUITS, classify_regime
+from fin_agent.analysis.scanner import scan
 from fin_agent.analysis import events as events_mod
 from fin_agent.data import econ_calendar, tax_rules
 from fin_agent.data.global_markets import board as world_board_rows
@@ -734,6 +735,49 @@ def regime_section(bars: pd.DataFrame, interval: str) -> None:
             st.caption(SUITS[reg["regime"]] + " This describes the market; it is not a signal to trade.")
 
 
+def scanner_tab() -> None:
+    from fin_agent.data.themes import THEMES
+    st.caption("Runs the same checks over many symbols and lists the ones with something going on: breakouts, "
+               "levels nearby, pullbacks in a trend. Flags describe the chart; they are not instructions. Prices "
+               "are delayed, so on 5-minute candles the picture can be out of date.")
+    theme_tickers = sorted({c.ticker for th in THEMES for c in th.companies})
+    universes = {"My watchlist": alerts_mod.load_watchlist(), f"Theme companies ({len(theme_tickers)})": theme_tickers,
+                 "Rupee currency pairs": list(next_candle.INR_PAIRS.values()), "Type my own": []}
+    c1, c2 = st.columns([2, 1])
+    pick = c1.selectbox("What to scan", list(universes), key="scan_universe")
+    interval = c2.selectbox("Candles", ["15m", "5m", "1h", "1d"], key="scan_interval")
+    tickers = universes[pick]
+    if pick == "Type my own":
+        raw = st.text_input("Symbols, comma-separated", placeholder="TCS.NS, INFY, USDINR=X", key="scan_own")
+        tickers = [normalise_ticker(t) for t in raw.split(",") if t.strip()]
+    if not tickers:
+        st.info("Nothing to scan: add stocks to your watchlist (Alerts tab) or pick another list.")
+        return
+    if not st.button(f"Scan {len(tickers)} symbol(s)"):
+        return
+
+    def fetch(tk: str):
+        try:
+            return load_history(tk).bars if interval == "1d" else load_candles(tk, interval)
+        except market_data.MarketDataError:
+            return None
+
+    with st.spinner(f"Scanning {len(tickers)} symbols on {interval} candles…"):
+        rows = scan(tickers, fetch)
+    fmt = lambda x, f: "–" if x is None else format(x, f)   # noqa: E731
+    st.dataframe(pd.DataFrame([{
+        "Symbol": r["ticker"], "Flags": "; ".join(r.get("flags", [])) or r.get("error", ""),
+        "Last": fmt(r.get("last"), ",.2f"), "Change": fmt(None if r.get("change") is None else r["change"] * 100, "+.2f"),
+        "Regime": r.get("regime", "–") + (" ⚠️" if r.get("high_volatility") else ""),
+        "RSI": fmt(r.get("rsi"), ".0f"), "Rel. volume": fmt(r.get("rel_volume"), ".1f"),
+        "Support": fmt(r.get("support"), ",.2f"), "Resistance": fmt(r.get("resistance"), ",.2f"),
+    } for r in rows]), hide_index=True, width="stretch")
+    flagged = sum(bool(r.get("flags")) for r in rows)
+    st.caption(f"{flagged} of {len(rows)} symbols have a flag. Change = last candle vs the one before (%). ⚠️ = high "
+               "volatility. Open a symbol in the Chart tab to see its levels and regime, then check the risk rules "
+               "before any (paper) trade.")
+
+
 def next_candle_section() -> None:
     """Measure whether simple rules guessed the next candle's direction in real past data."""
     with st.expander("🎲 Does RSI / SMA predict the next candle? (test on real past data)"):
@@ -1191,9 +1235,9 @@ def statements_company(file_bytes: bytes) -> str:
 
 # ---------------------------------------------------------------- page
 st.title(APP_NAME)
-tab_alerts, tab_world, tab_chart, tab_long, tab_events, tab_paper, tab_journal, tab_chat = st.tabs(
-    ["🔔 Alerts", "🌍 World", "📈 Chart & signals", "🏦 Long-term", "🔭 Events", "🧪 Paper trading", "📒 Journal",
-     "💬 Ask AI"])
+tab_alerts, tab_world, tab_chart, tab_scan, tab_long, tab_events, tab_paper, tab_journal, tab_chat = st.tabs(
+    ["🔔 Alerts", "🌍 World", "📈 Chart & signals", "🔎 Scanner", "🏦 Long-term", "🔭 Events", "🧪 Paper trading",
+     "📒 Journal", "💬 Ask AI"])
 
 with tab_alerts:
     alerts_tab(portfolio)
@@ -1205,6 +1249,9 @@ with tab_world:
 with tab_chart:
     chart_tab()
     next_candle_section()
+
+with tab_scan:
+    scanner_tab()
 
 with tab_long:
     longterm_tab()

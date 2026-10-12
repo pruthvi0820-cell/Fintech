@@ -66,7 +66,7 @@ def test_page_loads_with_examples_and_no_errors(app):
                                               "How is RELIANCE.NS doing?",
                                               "What is RSI?", "Is my portfolio diversified?",
                                               "Load my Zerodha holdings"]
-    assert [t.label for t in app.tabs] == ["🔔 Alerts", "🌍 World", "📈 Chart & signals", "🏦 Long-term", "🔭 Events",
+    assert [t.label for t in app.tabs] == ["🔔 Alerts", "🌍 World", "📈 Chart & signals", "🔎 Scanner", "🏦 Long-term", "🔭 Events",
                                            "🧪 Paper trading", "📒 Journal", "💬 Ask AI"]
     assert any("cannot place orders" in c.value for c in app.caption)
 
@@ -490,3 +490,13 @@ def test_world_tab_board_and_calendar(app, monkeypatch):
     shown = " ".join(m.value for m in app.markdown)
     assert "🔴" in shown and "USD CPI m/m (forecast 0.3%, previous 0.2%)" in shown
     assert "High-impact event in" in shown                      # the Alerts tab uses the loaded calendar
+
+
+def test_scanner_tab_scans_currency_pairs(app):
+    app.run()
+    assert any("Nothing to scan" in i.value for i in app.info)          # empty watchlist by default
+    app.selectbox(key="scan_universe").set_value("Rupee currency pairs").run()
+    next(b for b in app.button if b.label == "Scan 4 symbol(s)").click().run()
+    assert not app.exception
+    table = next(d.value for d in app.dataframe if "Rel. volume" in d.value.columns)
+    assert set(table["Symbol"]) == {"USDINR=X", "EURINR=X", "GBPINR=X", "JPYINR=X"}

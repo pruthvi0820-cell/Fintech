@@ -63,10 +63,10 @@ def test_page_loads_with_examples_and_no_errors(app):
     assert [b.label for b in app.button] == ["Add to watchlist", "Load world markets", "Load economic calendar",
                                               "Analyze", "Run candle test", "Load fundamentals",
                                               "Scan news now", "Save risk rules",
-                                              "Import today's trades from Zerodha", "Add fill",
+                                              "Import today's trades from Angel One", "Import today's trades from Zerodha", "Add fill",
                                               "How is RELIANCE.NS doing?",
                                               "What is RSI?", "Is my portfolio diversified?",
-                                              "Load my Zerodha holdings"]
+                                              "Load my Angel One holdings", "Load my Zerodha holdings"]
     assert [t.label for t in app.tabs] == ["🔔 Alerts", "🌍 World", "📈 Chart & signals", "🔎 Scanner", "🏦 Long-term", "🔭 Events",
                                            "🧪 Paper trading", "📒 Journal", "💬 Ask AI"]
     assert any("cannot place orders" in c.value for c in app.caption)
@@ -412,7 +412,7 @@ def test_zerodha_button_without_setup_explains_and_with_session_loads(app, monke
     monkeypatch.setattr(zerodha, "connect", lambda: Fake())
     button(app, "Load my Zerodha holdings").click().run()
     assert not app.exception
-    assert any("From Zerodha at" in c.value for c in app.caption)
+    assert any("From your broker at" in c.value and "(Zerodha)" in c.value for c in app.caption)
     assert any(m.label == "Total value (latest price)" and m.value == "₹6,600" for m in app.metric)
 
 

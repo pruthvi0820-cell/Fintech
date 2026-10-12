@@ -31,7 +31,7 @@ from fin_agent.analysis.events import EventStore, default_path as events_path, d
 from fin_agent.data import econ_calendar, market_data
 from fin_agent.data.news import collect_news
 from fin_agent.data.news_sources import get_sources
-from fin_agent.broker import zerodha
+from fin_agent.broker import angelone, zerodha
 from fin_agent.notify import telegram
 from fin_agent.portfolio import live_trades
 from fin_agent.pipelines.alerts import gather_alerts
@@ -101,6 +101,10 @@ def run_once(token: str, chat_id: str, scan_news: bool = True, now: datetime | N
         live.import_zerodha(zerodha.connect().trades())
     except zerodha.KiteError:
         pass                                                # not set up or not logged in today: manual fills only
+    try:
+        live.import_zerodha(angelone.trades_to_fills(angelone.connect().trades(), now), source="angelone")
+    except angelone.AngelError:
+        pass
     try:
         calendar = econ_calendar.fetch()
     except econ_calendar.CalendarError:

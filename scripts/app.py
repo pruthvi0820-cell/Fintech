@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 
 from fin_agent.data.fundamentals import FundamentalsError, Statements
 from fin_agent.analysis import alerts as alerts_mod
-from fin_agent.broker import kite_orders, zerodha
+from fin_agent.broker import angelone, kite_orders, zerodha
 from fin_agent.analysis import chart_marks as marks_mod
 from fin_agent.analysis import next_candle
 from fin_agent.analysis import risk_engine
@@ -693,6 +693,14 @@ def real_trades_section() -> None:
     if capital and capital != live_trades.load_capital():
         live_trades.save_capital(capital)
     c2.write("")
+    if c2.button("Import today's trades from Angel One"):
+        try:
+            with st.spinner("Reading today's trades from Angel One…"):
+                rows = angelone.trades_to_fills(angelone.connect().trades(), now)
+                n = book.import_zerodha(rows, source="angelone")
+            st.success(f"Imported {n} new fill(s)." if n else "No new fills from Angel One.")
+        except angelone.AngelError as exc:
+            st.error(str(exc))
     if c2.button("Import today's trades from Zerodha"):
         try:
             with st.spinner("Reading today's trades from Zerodha…"):
@@ -1303,12 +1311,20 @@ with st.sidebar:
     st.header("Portfolio")
     st.caption("Upload a holdings CSV from your broker app, or load them from Zerodha (read-only).")
     upload = st.file_uploader("Holdings CSV", type=["csv"], label_visibility="collapsed")
+    if st.button("Load my Angel One holdings", help="Read-only. Log in once a day first: "
+                                                     "python scripts\\angelone.py --login"):
+        try:
+            with st.spinner("Reading holdings from Angel One…"):
+                st.session_state["zerodha_portfolio"] = angelone.holdings_to_portfolio(angelone.connect().holdings())
+            st.session_state["zerodha_loaded"] = f"{datetime.now(ZoneInfo('Asia/Kolkata')):%H:%M} IST (Angel One)"
+        except angelone.AngelError as exc:
+            st.error(str(exc))
     if st.button("Load my Zerodha holdings", help="Read-only. Log in once a day first: "
                                                    "python scripts\\zerodha.py --login"):
         try:
             with st.spinner("Reading holdings from Zerodha…"):
                 st.session_state["zerodha_portfolio"] = zerodha.holdings_to_portfolio(zerodha.connect().holdings())
-            st.session_state["zerodha_loaded"] = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M")
+            st.session_state["zerodha_loaded"] = f"{datetime.now(ZoneInfo('Asia/Kolkata')):%H:%M} IST (Zerodha)"
         except zerodha.KiteError as exc:
             st.error(str(exc))
     portfolio = None
@@ -1320,7 +1336,7 @@ with st.sidebar:
             st.error(str(exc))
     elif "zerodha_portfolio" in st.session_state:
         source = st.session_state["zerodha_portfolio"]
-        st.caption(f"From Zerodha at {st.session_state.get('zerodha_loaded', '?')} IST (read-only). "
+        st.caption(f"From your broker at {st.session_state.get('zerodha_loaded', '?')}, read-only. "
                    "An uploaded CSV takes priority.")
     if source is not None and not source.holdings:
         st.info("No holdings in this Zerodha account.")

@@ -188,8 +188,9 @@ class LiveBook:
         return db
 
     # ------------------------------------------------------------------ writing
-    def import_zerodha(self, rows: list[dict[str, Any]]) -> int:
-        """Zerodha /trades rows (today's executed trades). Already-imported fills are skipped."""
+    def import_zerodha(self, rows: list[dict[str, Any]], source: str = "zerodha") -> int:
+        """Broker trade rows in Zerodha's /trades shape (Angel One's are converted to it by
+        broker/angelone.trades_to_fills). Already-imported fills are skipped."""
         good = []
         for r in rows or []:
             try:
@@ -200,8 +201,8 @@ class LiveBook:
                 continue
             if side not in ("BUY", "SELL") or qty <= 0 or price <= 0 or not r.get("trade_id"):
                 continue
-            good.append((f"zerodha:{r['trade_id']}", str(r.get("order_id", "")), str(r["tradingsymbol"]).upper(),
-                         side, str(r.get("product", "")).upper() or "?", qty, price, when.isoformat(), "zerodha"))
+            good.append((f"{source}:{r['trade_id']}", str(r.get("order_id", "")), str(r["tradingsymbol"]).upper(),
+                         side, str(r.get("product", "")).upper() or "?", qty, price, when.isoformat(), source))
         with closing(self._connect()) as db, db:
             before = db.total_changes
             db.executemany("INSERT OR IGNORE INTO fills VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", good)

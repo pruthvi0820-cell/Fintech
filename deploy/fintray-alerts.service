@@ -1,0 +1,12 @@
+[Unit]
+Description=FinTray Telegram alerts (market hours, every 15 minutes)
+After=network-online.target
+
+[Service]
+WorkingDirectory=__APP_DIR__
+ExecStart=__APP_DIR__/.venv/bin/python scripts/alerts_runner.py
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=default.target

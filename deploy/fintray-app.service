@@ -1,0 +1,12 @@
+[Unit]
+Description=FinTray page (Streamlit), listening on 127.0.0.1:8501 only
+After=network-online.target
+
+[Service]
+WorkingDirectory=__APP_DIR__
+ExecStart=__APP_DIR__/.venv/bin/streamlit run scripts/app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

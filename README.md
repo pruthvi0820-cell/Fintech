@@ -116,6 +116,8 @@ streamlit run scripts/app.py        # opens http://localhost:8501
 
 **🟢 Real orders (Step 7)** (📈 Chart tab, under the checklist): **off by default**. With `FIN_AGENT_LIVE_TRADING=true` in `.env`, your trading capital set, and today's Zerodha login, FinTray drafts a LIMIT entry and a stop-limit stop-loss from the plan. You approve each one by typing it exactly (e.g. `BUY 10 TCS`); the approval is tied to that exact order, works once and expires after 2 minutes, and the risk engine checks the entry again when it is sent. No market orders. The AI cannot place orders (a test checks that no AI module can import the order code). Every approval and its result is kept in `journal/order_approvals.sqlite3`. **Zerodha requires a registered static IP for API orders since April 2026**; without one it rejects the order and FinTray says so.
 
+**☁️ Cloud (Step 8)**: run FinTray and the Telegram alerts on an always-on server with a static IP (needed for broker API orders), opened privately from your phone through Tailscale. Step-by-step: [docs/CLOUD.md](docs/CLOUD.md); one-command install: `bash deploy/setup_server.sh`. FinTray has no login screen, so it listens on the server only and must never be opened to the internet.
+
 **🔔 Alerts** (the first tab):
 - One list of what needs a look, most important first: your watchlist and holdings meeting 4+ of 5 buy conditions, holdings meeting 4+ sell conditions, saved events (Events tab) from the last 3 days that link to them, paper trades closed in the last 7 days or within 2% of their stop, and journal lots turning long-term within 30 days.
 - A watchlist editor (saved in `journal/watchlist.json`). Facts with their source, never instructions.

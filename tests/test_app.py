@@ -62,7 +62,8 @@ def test_page_loads_with_examples_and_no_errors(app):
     assert app.title[0].value == "FinTray"
     assert [b.label for b in app.button] == ["Add to watchlist", "Analyze", "Load fundamentals", "Scan news now",
                                               "How is RELIANCE.NS doing?",
-                                              "What is RSI?", "Is my portfolio diversified?"]
+                                              "What is RSI?", "Is my portfolio diversified?",
+                                              "Load my Zerodha holdings"]
     assert [t.label for t in app.tabs] == ["🔔 Alerts", "📈 Chart & signals", "🏦 Long-term", "🔭 Events",
                                            "🧪 Paper trading", "📒 Journal", "💬 Ask AI"]
     assert any("cannot place orders" in c.value for c in app.caption)
@@ -392,3 +393,21 @@ def test_chart_marks_can_be_saved_and_deleted(app):
     assert any(e.label == "✏️ My marks on RELIANCE.NS (1)" for e in app.expander)
     button(app, "Delete").click().run()
     assert any("Deleted mark" in s.value for s in app.success)
+
+
+def test_zerodha_button_without_setup_explains_and_with_session_loads(app, monkeypatch):
+    from fin_agent.broker import zerodha
+    monkeypatch.delenv("FIN_AGENT_KITE_API_KEY", raising=False)
+    app.run()
+    button(app, "Load my Zerodha holdings").click().run()
+    assert not app.exception and any("Zerodha is not set up" in e.value for e in app.error)
+
+    class Fake:
+        def holdings(self):
+            return [{"tradingsymbol": "TCS", "quantity": 2, "t1_quantity": 0, "average_price": 3000,
+                     "last_price": 3300}]
+    monkeypatch.setattr(zerodha, "connect", lambda: Fake())
+    button(app, "Load my Zerodha holdings").click().run()
+    assert not app.exception
+    assert any("From Zerodha at" in c.value for c in app.caption)
+    assert any(m.label == "Total value (latest price)" and m.value == "₹6,600" for m in app.metric)

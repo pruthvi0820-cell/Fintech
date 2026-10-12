@@ -88,6 +88,8 @@ streamlit run scripts/app.py        # opens http://localhost:8501
 
 **✏️ Marking the chart** (📈 Chart & signals): the chart's toolbar (top right) has drawing tools: straight line, freehand, box and eraser. Drawings are temporary (gone on reload). To keep a price level, save it under **✏️ My marks**: it is drawn on the chart every time, and the Alerts tab and Telegram tell you when the close crosses it (🔴) or is within 1% (🔵). Saved in `journal/chart_marks.json`.
 
+**🔗 Zerodha read-only** (optional, free): FinTray reads your holdings, positions, funds and today's orders. It cannot place, change or cancel orders. Setup once: on developers.kite.trade create a **Personal** app (free; redirect URL `http://127.0.0.1:8501/`), then put its API key and secret in `.env` as `FIN_AGENT_KITE_API_KEY` and `FIN_AGENT_KITE_API_SECRET`. Every day: `python scripts/zerodha.py --login` (log in on Zerodha's own page, paste the address back), then click **Load my Zerodha holdings** in the sidebar. `--holdings` and `--check` show the same in the terminal; `--logout` forgets today's login. The daily token is kept in `journal/kite_session.json` (git-ignored). The Personal plan has no market data, so prices for charts still come from Yahoo.
+
 **🔔 Alerts** (the first tab):
 - One list of what needs a look, most important first: your watchlist and holdings meeting 4+ of 5 buy conditions, holdings meeting 4+ sell conditions, saved events (Events tab) from the last 3 days that link to them, paper trades closed in the last 7 days or within 2% of their stop, and journal lots turning long-term within 30 days.
 - A watchlist editor (saved in `journal/watchlist.json`). Facts with their source, never instructions.

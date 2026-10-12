@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo
 
 from fin_agent.data.fundamentals import FundamentalsError, Statements
 from fin_agent.analysis import alerts as alerts_mod
+from fin_agent.broker import zerodha
 from fin_agent.analysis import chart_marks as marks_mod
 from fin_agent.analysis import events as events_mod
 from fin_agent.data import tax_rules
@@ -695,12 +696,32 @@ st.session_state.setdefault("messages", [])
 # ---------------------------------------------------------------- sidebar: portfolio + settings
 with st.sidebar:
     st.header("Portfolio")
-    st.caption("Export your holdings from your broker app as CSV and upload it. No login needed.")
+    st.caption("Upload a holdings CSV from your broker app, or load them from Zerodha (read-only).")
     upload = st.file_uploader("Holdings CSV", type=["csv"], label_visibility="collapsed")
+    if st.button("Load my Zerodha holdings", help="Read-only. Log in once a day first: "
+                                                   "python scripts\\zerodha.py --login"):
+        try:
+            with st.spinner("Reading holdings from Zerodha…"):
+                st.session_state["zerodha_portfolio"] = zerodha.holdings_to_portfolio(zerodha.connect().holdings())
+            st.session_state["zerodha_loaded"] = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M")
+        except zerodha.KiteError as exc:
+            st.error(str(exc))
     portfolio = None
+    source = None
     if upload is not None:
         try:
-            portfolio = parse_holdings_csv(upload.getvalue())
+            source = parse_holdings_csv(upload.getvalue())
+        except PortfolioError as exc:
+            st.error(str(exc))
+    elif "zerodha_portfolio" in st.session_state:
+        source = st.session_state["zerodha_portfolio"]
+        st.caption(f"From Zerodha at {st.session_state.get('zerodha_loaded', '?')} IST (read-only). "
+                   "An uploaded CSV takes priority.")
+    if source is not None and not source.holdings:
+        st.info("No holdings in this Zerodha account.")
+    elif source is not None:
+        try:
+            portfolio = source
             snap = portfolio_snapshot(portfolio)
         except PortfolioError as exc:
             portfolio = None

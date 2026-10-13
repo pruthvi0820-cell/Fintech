@@ -688,3 +688,10 @@ def test_chart_live_angel_prices_and_fallback(app, monkeypatch):
     button(app, "Analyze").click().run()
     assert not app.exception
     assert any("Live prices unavailable: Not logged in" in w.value for w in app.warning)
+
+
+def test_paper_tab_live_mode(app):
+    app.run()
+    app.toggle(key="paper_live").set_value(True).run()
+    assert not app.exception
+    assert any(c.value.startswith("🔄 Checked") for c in app.caption)

@@ -62,6 +62,7 @@ from fin_agent.pipelines.ask import CACHEABLE_KINDS, answer, cache_key
 from fin_agent.pipelines.fundamentals import (SOURCE_LABELS, analysis_markdown, build_fundamentals_report,
                                               load_statements)
 from fin_agent.pipelines.brief import esc, md_link, safe_model_text
+from fin_agent.pipelines import paper_live
 import sqlite3
 
 from fin_agent.portfolio.holdings import PortfolioError, parse_holdings_csv, portfolio_snapshot
@@ -96,6 +97,12 @@ def load_candles_fresh(ticker: str, interval: str) -> pd.DataFrame:
 def load_angel_candles(ticker: str, interval: str) -> pd.DataFrame:
     """Live NSE candles from Angel One (needs today's angelone.py --login); refreshed at most every 20 s."""
     return angel_market.candles(ticker, interval)
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def load_freshest_candles(ticker: str, interval: str) -> tuple[pd.DataFrame, str]:
+    """Angel One live candles for NSE stocks when logged in today, else Yahoo (see pipelines/paper_live)."""
+    return paper_live.freshest_candles(ticker, interval, yahoo=load_candles_fresh)
 
 
 PRICE_SOURCES = ("Yahoo (free, ~15 min late)", "Angel One (live, needs today's login)")
@@ -312,25 +319,30 @@ def paper_tab() -> None:
                "candle after the buy; intraday trades against their 5m/15m/1h candles from the entry time, and "
                "squared off at 15:20 IST if neither level is hit. Checks run whenever this page opens. A gap past "
                "the stop exits at the open (a bigger loss), and a candle touching both stop and target counts as "
-               "the stop. Prices are delayed. Nothing here can place real orders.")
+               "the stop. Nothing here can place real orders.")
     book = get_paper()
     if book is None:
         return
+    live_mode = st.toggle(
+        "🔴 Live mode: check open trades every minute", key="paper_live",
+        help="Re-checks stops, targets and the 15:20 square-off about once a minute. NSE stocks use live Angel One "
+             "prices when you've logged in today (python scripts\\angelone.py --login); otherwise Yahoo's, often "
+             "about 15 minutes late. Keep this page open, or run FinTray_Alerts.bat to get Telegram messages "
+             "when a paper trade closes.")
+    if live_mode:
+        auto_refresh_tick()
     risk_rules_panel(book)
-    open_rows = book.trades().query("status == 'open'")
-    bars, intraday_bars = {}, {}
-    for r in open_rows.itertuples():
-        try:
-            if getattr(r, "mode", "swing") == "intraday":
-                intraday_bars[r.ticker] = load_candles(r.ticker, r.interval)
-            else:
-                bars[r.ticker] = load_history(r.ticker).bars
-        except market_data.MarketDataError as exc:
-            st.warning(f"{r.ticker}: can't check stop/target now ({exc}).")
-    for msg in book.check_exits(bars, intraday_bars):
+    check = paper_live.check_paper(book, intraday=load_freshest_candles if live_mode else
+                                   (lambda tk, iv: (load_candles(tk, iv), paper_live.DELAYED)),
+                                   daily=lambda tk: load_history(tk).bars)
+    for msg in check.problems:
+        st.warning(msg)
+    for msg in check.closed:
         st.success(msg)
-    bars.update(intraday_bars)
-    prices = {tk: float(b["Close"].iloc[-1]) for tk, b in bars.items()}
+    prices, sources = check.prices, check.sources
+    if live_mode:
+        st.caption(f"🔄 Checked {datetime.now(ZoneInfo('Asia/Kolkata')):%H:%M:%S} IST. "
+                   + " · ".join(f"{tk}: {src}" for tk, src in sources.items()))
     s = book.stats(prices)
     pct = lambda x: "–" if x is None else f"{x * 100:+.1f}%"   # noqa: E731
     k = st.columns(5)
@@ -372,6 +384,7 @@ def paper_tab() -> None:
             "Opened": (r.opened_at or "")[11:16] + " " + r.opened_on if getattr(r, "opened_at", None) else r.opened_on,
             "Shares": r.shares, "Entry": r.entry,
             "Stop": r.stop, "Target": r.target, "Now": prices.get(r.ticker, "–"),
+            "Prices": "🟢 live" if sources.get(r.ticker) == paper_live.LIVE else "delayed",
             "P&L now": "–" if r.ticker not in prices else f"₹{r.shares * (prices[r.ticker] - r.entry):,.0f}",
         } for r in open_.itertuples()]), hide_index=True, width="stretch")
         with st.form("paper_close"):

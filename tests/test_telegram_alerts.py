@@ -123,3 +123,14 @@ def test_test_flag_sends_a_message(runner, monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["alerts_runner.py", "--test"])
     assert runner.main() == 0 and "FinTray is connected" in sent[0]
     assert "Test message sent" in capsys.readouterr().out
+
+
+def test_paper_closes_are_sent_at_once(runner):
+    from fin_agent.pipelines.paper_live import PaperCheck
+    sent = []
+    now = datetime(2026, 10, 13, 10, 31, tzinfo=IST)
+    closed = PaperCheck(closed=["#3 SBIN.NS: target on 2026-10-13 10:30 at ₹110.00 (P&L ₹97.95)."])
+    n = runner.paper_once(TOKEN, "42", now=now, send=lambda t, c, text: sent.append(text), check=lambda book: closed)
+    assert n == 1 and "Paper trade closed · 13 Oct 10:31 IST" in sent[0] and "#3 SBIN.NS: target" in sent[0]
+    assert runner.paper_once(TOKEN, "42", now=now, send=lambda *a: sent.append("x"), check=lambda b: PaperCheck()) == 0
+    assert len(sent) == 1

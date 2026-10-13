@@ -5,11 +5,14 @@ Usage:
     python scripts/alerts_runner.py --test            # send a test message to check the phone connection
     python scripts/alerts_runner.py --once            # check now, send new alerts, stop
     python scripts/alerts_runner.py                   # every 15 minutes in market hours, until Ctrl+C
+                                                      # (open paper trades: checked every minute)
     python scripts/alerts_runner.py --every 30 --any-time
 
 Needs FIN_AGENT_TELEGRAM_TOKEN and FIN_AGENT_TELEGRAM_CHAT_ID in .env (see notify/telegram.py).
 Same rules as the Alerts tab (pipelines/alerts.py). Each alert is sent once: what was sent is
-remembered in journal/alerts_sent.json for 14 days. Nothing here can place an order.
+remembered in journal/alerts_sent.json for 14 days. Open paper trades are checked every minute
+(live Angel One prices for NSE stocks when logged in today) and each close is sent at once.
+Nothing here can place an order.
 """
 
 from __future__ import annotations
@@ -35,6 +38,7 @@ from fin_agent.broker import angelone, zerodha
 from fin_agent.notify import telegram
 from fin_agent.portfolio import live_trades
 from fin_agent.pipelines.alerts import gather_alerts
+from fin_agent.pipelines.paper_live import check_paper
 from fin_agent.portfolio.journal import Journal, default_path as journal_path
 from fin_agent.portfolio.paper import PaperBook, default_path as paper_path
 
@@ -125,6 +129,18 @@ def run_once(token: str, chat_id: str, scan_news: bool = True, now: datetime | N
     return len(fresh)
 
 
+def paper_once(token: str, chat_id: str, now: datetime | None = None, send=telegram.send,
+               check=check_paper) -> int:
+    """Check open paper trades now; send one message listing any that closed. Returns how many closed.
+    A close is saved before sending, so a failed send loses only the message (the Paper tab shows it)."""
+    now = now or datetime.now(IST)
+    result = check(PaperBook(paper_path()))
+    if result.closed:
+        send(token, chat_id, "\n".join([f"🧪 Paper trade closed · {now.astimezone(IST):%d %b %H:%M} IST",
+                                        *result.closed, "Virtual money: practice only."]))
+    return len(result.closed)
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -159,8 +175,9 @@ def main() -> int:
             print(f"{n} new alert(s) sent." if n else "No new alerts.")
             return 0
         every = max(5, args.every)
-        print(f"Checking every {every} minutes{'' if args.any_time else ' in market hours'}. Ctrl+C to stop.")
-        waiting_said = False
+        print(f"Checking every {every} minutes{'' if args.any_time else ' in market hours'} (open paper trades: "
+              "every minute). Ctrl+C to stop.")
+        waiting_said, last_full = False, None
         while True:
             now = datetime.now(IST)
             if not (args.any_time or in_market_hours(now)) and not waiting_said:
@@ -170,11 +187,21 @@ def main() -> int:
             if args.any_time or in_market_hours(now):
                 waiting_said = False
                 try:
-                    n = run_once(token, chat_id, scan_news=not args.no_news, now=now)
-                    print(f"{now:%H:%M} {n} new alert(s) sent." if n else f"{now:%H:%M} no new alerts.")
+                    closed = paper_once(token, chat_id, now=now)
+                    if closed:
+                        print(f"{now:%H:%M} {closed} paper trade(s) closed; sent to Telegram.")
                 except telegram.TelegramError as exc:
-                    print(f"{now:%H:%M} send failed: {exc} (will retry next round)")
-            time.sleep(every * 60)
+                    print(f"{now:%H:%M} paper message failed: {exc}")
+                except Exception as exc:                    # keep the watcher alive; say what went wrong
+                    print(f"{now:%H:%M} paper check failed: {type(exc).__name__}: {exc}")
+                if last_full is None or (now - last_full).total_seconds() >= every * 60 - 30:
+                    last_full = now
+                    try:
+                        n = run_once(token, chat_id, scan_news=not args.no_news, now=now)
+                        print(f"{now:%H:%M} {n} new alert(s) sent." if n else f"{now:%H:%M} no new alerts.")
+                    except telegram.TelegramError as exc:
+                        print(f"{now:%H:%M} send failed: {exc} (will retry next round)")
+            time.sleep(60)
     except telegram.TelegramError as exc:
         print(f"[error] {exc}", file=sys.stderr)
         return 1

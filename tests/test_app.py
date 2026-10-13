@@ -648,3 +648,20 @@ def test_intraday_backtest_section_runs(app):
     labels = [m.label for m in app.metric]
     assert {"Trades", "Average per trade", "Worst drop"} <= set(labels)
     assert any("no-skill baseline" in c.value for c in app.caption)
+
+
+def test_chart_indicator_picker_and_auto_refresh(app):
+    app.run()
+    app.selectbox(key="chart_interval").set_value("15m").run()
+    app.multiselect(key="chart_indicators").set_value(["VWAP", "Supertrend (10, 3)", "MACD (12, 26, 9)"])
+    app.toggle(key="chart_auto").set_value(True)
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    spec = app.get("plotly_chart")[0].proto.spec
+    assert '"VWAP"' in spec and '"Supertrend up"' in spec and '"MACD"' in spec and '"SMA 20"' not in spec
+    assert any("Auto-refresh on: last candle" in c.value for c in app.caption)
+
+
+def test_auto_refresh_is_off_on_daily_candles(app):
+    app.run()
+    assert app.toggle(key="chart_auto").disabled

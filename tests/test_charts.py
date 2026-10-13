@@ -24,7 +24,7 @@ def test_chart_has_candles_averages_volume_rsi_and_trade_markers():
     result = backtest(bars)
     fig = candle_chart(bars, "TEST.NS", result)
     names = [t.name for t in fig.data]
-    assert names[:4] == ["Price", "20-day avg", "50-day avg", "200-day avg"]
+    assert names[:4] == ["Price", "SMA 20", "SMA 50", "SMA 200"]
     assert {"Backtest buy", "Backtest sell", "Volume", "RSI 14"} <= set(names)
     buys = next(t for t in fig.data if t.name == "Backtest buy")
     assert len(buys.x) == result.n_trades
@@ -44,3 +44,23 @@ def test_trade_plan_levels_are_drawn():
     texts = [a.text for a in fig.layout.annotations]
     assert any(t.startswith("Stop-loss") for t in texts) and any(t.startswith("Target") for t in texts)
     assert {round(s.y0, 2) for s in fig.layout.shapes} >= {plan.stop, plan.entry, plan.target}
+
+
+def test_indicator_picker_adds_lines_and_panels():
+    from fin_agent.charts import INDICATORS
+    fig = candle_chart(_bars(), "TEST.NS", indicators=INDICATORS)
+    names = {t.name for t in fig.data}
+    assert {"EMA 9", "EMA 21", "VWAP", "Bollinger upper", "Bollinger lower", "Supertrend up", "Supertrend down",
+            "Volume", "RSI 14", "MACD", "MACD signal", "MACD histogram"} <= names
+    assert fig.layout.yaxis4.title.text == "MACD"            # price + volume + RSI + MACD rows
+
+
+def test_only_the_price_when_nothing_is_picked():
+    fig = candle_chart(_bars(), "TEST.NS", indicators=[])
+    assert [t.name for t in fig.data] == ["Price"]
+    assert "yaxis2" not in fig.layout.to_plotly_json()
+
+
+def test_unknown_indicator_names_are_ignored():
+    names = [t.name for t in candle_chart(_bars(), "TEST.NS", indicators=["VWAP", "Ichimoku"]).data]
+    assert names == ["Price", "VWAP"]

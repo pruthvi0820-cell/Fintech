@@ -12,6 +12,8 @@ cannot place orders: nothing it imports can talk to a broker.
 
 from __future__ import annotations
 
+import time
+
 import pandas as pd
 import streamlit as st
 
@@ -19,7 +21,7 @@ from fin_agent.analysis.backtest import DEFAULT_COST_PER_SIDE, backtest
 from fin_agent.analysis.risk import DEFAULT_RISK_PCT, PlanError, plan_trade
 from fin_agent.analysis.signals import latest_signals
 from fin_agent.analysis.summary import minimum_to_buy, rate_text, stock_records, your_record
-from fin_agent.charts import DRAW_CONFIG, candle_chart
+from fin_agent.charts import DEFAULT_INDICATORS, DRAW_CONFIG, INDICATORS, candle_chart
 from fin_agent.config import Settings
 from fin_agent.data import market_data
 from fin_agent.llm import factory
@@ -82,6 +84,25 @@ def load_history(ticker: str) -> market_data.PriceHistory:
 @st.cache_data(ttl=900, show_spinner=False)
 def load_candles(ticker: str, interval: str) -> pd.DataFrame:
     return market_data.fetch_history(ticker, period=next_candle.TIMEFRAMES[interval], interval=interval).bars
+
+
+@st.cache_data(ttl=55, show_spinner=False)
+def load_candles_fresh(ticker: str, interval: str) -> pd.DataFrame:
+    """Same as load_candles, re-fetched at most once a minute (for the chart's auto-refresh)."""
+    return market_data.fetch_history(ticker, period=next_candle.TIMEFRAMES[interval], interval=interval).bars
+
+
+AUTO_REFRESH_SECONDS = 60
+
+
+@st.fragment(run_every=AUTO_REFRESH_SECONDS)
+def auto_refresh_tick() -> None:
+    """While the Chart tab's auto-refresh is on, reruns the whole page about once a minute."""
+    now = time.monotonic()
+    last = st.session_state.setdefault("last_auto_refresh", now)
+    if now - last >= AUTO_REFRESH_SECONDS - 5:
+        st.session_state["last_auto_refresh"] = now
+        st.rerun(scope="app")
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1248,6 +1269,18 @@ def chart_tab() -> None:
                                  "The chart, regime and support/resistance use the candles you pick here.")
     c2.write("")
     clicked = c2.button("Analyze", type="primary", width="stretch")
+    i1, i2 = st.columns([4, 1])
+    st.session_state.setdefault("chart_indicators", list(DEFAULT_INDICATORS))
+    shown_indicators = i1.multiselect(
+        "Indicators", INDICATORS, key="chart_indicators",
+        help="Lines on the price (averages, VWAP, Bollinger Bands, Supertrend) and panels below it (volume, RSI, "
+             "MACD). Averages count candles: on 15m candles, SMA 20 is the last 20 fifteen-minute candles.")
+    auto = i2.toggle("Auto-refresh (1 min)", key="chart_auto", disabled=interval == "1d",
+                     help="Re-fetches the candles and redraws about once a minute. Drawings made with the chart's "
+                          "pen disappear on each refresh; save levels as marks below to keep them.")
+    auto = auto and interval != "1d"
+    if auto:
+        auto_refresh_tick()
     with st.expander("Backtest settings"):
         b1, b2, b3, b4 = st.columns(4)
         entry = b1.slider("Buy when conditions met ≥", 3, 5, 4)
@@ -1299,7 +1332,7 @@ def chart_tab() -> None:
     if interval != "1d":
         try:
             with st.spinner(f"Fetching {interval} candles…"):
-                chart_bars = load_candles(hist.ticker, interval)
+                chart_bars = (load_candles_fresh if auto else load_candles)(hist.ticker, interval)
         except market_data.MarketDataError as exc:
             st.warning(f"{interval} candles unavailable ({exc}). Showing daily candles.")
             interval = "1d"
@@ -1326,14 +1359,17 @@ def chart_tab() -> None:
                   "target": pt.target} for pt in recent_patterns]
         fig = candle_chart(shown, f"{hist.ticker} — {interval} candles", None if intraday else result, plan, marks,
                            levels, intraday_nse=intraday and hist.ticker.endswith((".NS", ".BO", "^NSEI")),
-                           patterns=drawn)
+                           patterns=drawn, indicators=shown_indicators)
     except ImportError:
         st.error('The chart library is not installed. Stop the page (Ctrl+C) and run:  pip install -e ".[app]"  '
                  "then start it again. Everything else on this page works without it.")
     else:
         st.plotly_chart(fig, width="stretch", config=DRAW_CONFIG)
         st.caption("✏️ Draw with the tools at the top right of the chart (line, freehand, box, eraser). Drawings "
-                   "disappear when the page reloads; to keep a level, save it as a mark below.")
+                   "disappear when the page reloads; to keep a level, save it as a mark below."
+                   + (f" 🔄 Auto-refresh on: last candle {shown.index[-1]:%d %b %H:%M}, fetched "
+                      f"{datetime.now(ZoneInfo('Asia/Kolkata')):%H:%M:%S} IST. Yahoo prices are often about 15 "
+                      "minutes late." if auto else ""))
     marks_section(hist.ticker, float(bars["Close"].iloc[-1]), marks)
     patterns_section(chart_bars, interval, recent_patterns)
 

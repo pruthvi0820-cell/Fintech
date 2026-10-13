@@ -23,6 +23,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
 app = ["streamlit>=1.65", "plotly>=5.20"]   # page: streamlit run scripts/app.py
+mt5 = ["MetaTrader5>=5.0.45; sys_platform == 'win32'"]   # XM demo via the MT5 program (Windows only)
 
 [tool.setuptools.packages.find]
 where = ["src"]

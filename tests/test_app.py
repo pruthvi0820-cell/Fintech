@@ -64,7 +64,7 @@ def test_page_loads_with_examples_and_no_errors(app):
                                               "Analyze", "Run candle test", "Load fundamentals",
                                               "Scan news now", "Save risk rules",
                                               "Import today's trades from Angel One", "Import today's trades from Zerodha", "Add fill",
-                                              "How is RELIANCE.NS doing?",
+                                              "Load XM demo account", "How is RELIANCE.NS doing?",
                                               "What is RSI?", "Is my portfolio diversified?",
                                               "Load my Angel One holdings", "Load my Zerodha holdings"]
     assert [t.label for t in app.tabs] == ["🔔 Alerts", "🌍 World", "📈 Chart & signals", "🔎 Scanner", "🏦 Long-term", "🔭 Events",
@@ -695,3 +695,25 @@ def test_paper_tab_live_mode(app):
     app.toggle(key="paper_live").set_value(True).run()
     assert not app.exception
     assert any(c.value.startswith("🔄 Checked") for c in app.caption)
+
+
+def test_mt5_section_and_chart_source(app, monkeypatch):
+    from fin_agent.broker import mt5
+    import test_mt5 as fake
+    lib = fake.FakeMT5(positions=(fake.Position(2, "GOLD", 0, 0.10, 4195.0, 0.0, 0.0, 4190.0, -50.0,
+                                                fake.server_ts(9, 0)),))
+    monkeypatch.setattr(mt5, "load_lib", lambda: lib)
+    monkeypatch.setattr(mt5, "datetime", type("D", (mt5.datetime,), {"now": staticmethod(lambda tz=None: fake.NOW)}))
+    app.run()
+    button(app, "Load XM demo account").click().run()
+    assert not app.exception
+    assert any(m.label == "Balance" and m.value.startswith("10,000.00") for m in app.metric)
+    table = next(d.value for d in app.dataframe if "Check" in d.value.columns)
+    assert table["Check"].tolist() == ["⚠️ no stop-loss"]
+
+    app.text_input(key="chart_raw").set_value("GC=F")
+    app.selectbox(key="chart_interval").set_value("15m").run()
+    app.selectbox(key="chart_source").set_value("MT5 / XM demo (live, MT5 open on this computer)").run()
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    assert any("Live MT5 prices for GOLD" in c.value for c in app.caption)

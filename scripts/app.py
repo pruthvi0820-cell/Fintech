@@ -30,7 +30,7 @@ from zoneinfo import ZoneInfo
 
 from fin_agent.data.fundamentals import FundamentalsError, Statements
 from fin_agent.analysis import alerts as alerts_mod
-from fin_agent.broker import angel_orders, angelone, kite_orders, zerodha
+from fin_agent.broker import angel_orders, angelone, kite_orders, mt5, zerodha
 from fin_agent.analysis import chart_marks as marks_mod
 from fin_agent.analysis import intraday_backtest as ibt
 from fin_agent.analysis import next_candle
@@ -105,7 +105,14 @@ def load_freshest_candles(ticker: str, interval: str) -> tuple[pd.DataFrame, str
     return paper_live.freshest_candles(ticker, interval, yahoo=load_candles_fresh)
 
 
-PRICE_SOURCES = ("Yahoo (free, ~15 min late)", "Angel One (live, needs today's login)")
+@st.cache_data(ttl=10, show_spinner=False)
+def load_mt5_candles(symbol: str, interval: str) -> pd.DataFrame:
+    """Live candles from the MT5 program on this computer (XM demo); refreshed at most every 10 s."""
+    return mt5.candles(symbol, interval)
+
+
+PRICE_SOURCES = ("Yahoo (free, ~15 min late)", "Angel One (live, needs today's login)",
+                 "MT5 / XM demo (live, MT5 open on this computer)")
 AUTO_REFRESH_SECONDS = 60
 
 
@@ -841,8 +848,58 @@ def real_trades_section() -> None:
     st.divider()
 
 
+def mt5_section() -> None:
+    """XM demo account read from the MT5 program: open trades with the 1% check, closed trades, stats."""
+    with st.expander("📈 XM demo (MetaTrader 5): practice trades, read-only"):
+        st.caption("Reads the MT5 program open on this computer (Windows; pip install -e \".[mt5]\"). Demo accounts "
+                   "only: XM with real money is not allowed for Indian residents. FinTray cannot place or close "
+                   "trades here. Amounts are in the account's currency (USD).")
+        if not st.button("Load XM demo account", key="mt5_load"):
+            return
+        try:
+            lib = mt5.connect()
+            acct, open_, closed = mt5.account(lib), mt5.positions(lib), mt5.closed_trades(lib=lib)
+        except mt5.MT5Error as exc:
+            st.warning(str(exc))
+            return
+        cur = acct.get("currency") or ""
+        k = st.columns(3)
+        k[0].metric("Balance", f"{acct['balance']:,.2f} {cur}")
+        k[1].metric("Equity", f"{acct['equity']:,.2f} {cur}", f"{acct['profit']:+,.2f} open", delta_color="off")
+        k[2].metric("Account", f"{acct['login']} (demo)", help=str(acct.get("server") or ""))
+        if open_:
+            st.markdown("**Open trades**")
+            st.dataframe(pd.DataFrame([{
+                "Opened (IST)": f"{x['opened']:%d %b %H:%M}", "Symbol": x["symbol"], "Side": x["side"],
+                "Lots": x["lots"], "Entry": x["entry"], "Stop": x["sl"] or "–", "Target": x["tp"] or "–",
+                "Now": x["now"], "P/L": round(x["profit"], 2),
+                "Risk": "–" if x["risk"] is None else f"{x['risk']:,.2f} ({x['risk'] / acct['balance']:.2%})",
+                "Check": "⚠️ " + "; ".join(x["flags"]) if x["flags"] else "✅"} for x in open_]),
+                hide_index=True, width="stretch")
+        else:
+            st.caption("No open trades.")
+        stats = mt5.stats(closed)
+        if stats["trades"]:
+            k2 = st.columns(4)
+            k2[0].metric("Closed (30 days)", stats["trades"])
+            k2[1].metric("Win rate", f"{stats['win_rate']:.0%}")
+            k2[2].metric("Expectancy per trade", f"{stats['expectancy']:+,.2f} {cur}",
+                         None if stats["expectancy_r"] is None else f"{stats['expectancy_r']:+.2f}R", delta_color="off")
+            k2[3].metric("Total", f"{stats['total']:+,.2f} {cur}")
+            if stats["too_few"]:
+                st.caption(f"Only {stats['trades']} closed trade(s): 20+ are needed before these numbers mean much.")
+            st.dataframe(pd.DataFrame([{
+                "Closed (IST)": f"{t['closed']:%d %b %H:%M}", "Symbol": t["symbol"], "Side": t["side"],
+                "Lots": t["lots"], "Entry": round(t["entry"], 2), "Exit": round(t["exit"], 2), "P/L": t["profit"],
+                "R": "–" if t["r"] is None else f"{t['r']:+.2f}"} for t in reversed(closed)]),
+                hide_index=True, width="stretch")
+        else:
+            st.caption("No closed trades in the last 30 days.")
+
+
 def journal_tab() -> None:
     real_trades_section()
+    mt5_section()
     journal = get_journal()
     if journal is None:
         return
@@ -1293,6 +1350,12 @@ def chart_tab() -> None:
     source = i3.selectbox("Prices from", PRICE_SOURCES, key="chart_source", disabled=interval == "1d",
                           help="Angel One gives live NSE prices for 5m/15m/1h candles after "
                                "python scripts\\angelone.py --login. Other symbols and daily candles use Yahoo.")
+    mt5_symbol = "GOLD"
+    if source == PRICE_SOURCES[2]:
+        mt5_symbol = st.text_input("MT5 symbol", value="GOLD", key="chart_mt5_symbol",
+                                   help="The name in MT5's Market Watch (XM gold: GOLD). The buy/sell conditions "
+                                        "and backtest above the chart still use the Yahoo symbol's daily candles "
+                                        "(for gold: GC=F).").strip().upper() or "GOLD"
     st.session_state.setdefault("chart_indicators", list(DEFAULT_INDICATORS))
     shown_indicators = i1.multiselect(
         "Indicators", INDICATORS, key="chart_indicators",
@@ -1358,6 +1421,16 @@ def chart_tab() -> None:
             if source == PRICE_SOURCES[1] and not live:
                 st.caption(f"Angel One live prices are for NSE stocks; {hist.ticker} uses Yahoo.")
             chart_bars = None
+            if source == PRICE_SOURCES[2]:
+                try:
+                    with st.spinner(f"Fetching live {interval} {mt5_symbol} candles from MT5…"):
+                        chart_bars = load_mt5_candles(mt5_symbol, interval)
+                    live_ok = True
+                    st.caption(f"🟢 Live MT5 prices for {mt5_symbol} (XM demo). Last candle "
+                               f"{chart_bars.index[-1]:%d %b %H:%M} IST (still forming until it closes). Volume is "
+                               "tick volume.")
+                except mt5.MT5Error as exc:
+                    st.warning(f"MT5 prices unavailable: {exc} Showing Yahoo prices for {hist.ticker}.")
             if live:
                 try:
                     with st.spinner(f"Fetching live {interval} candles from Angel One…"):

@@ -23,7 +23,7 @@ from fin_agent.analysis.signals import latest_signals
 from fin_agent.analysis.summary import minimum_to_buy, rate_text, stock_records, your_record
 from fin_agent.charts import DEFAULT_INDICATORS, DRAW_CONFIG, INDICATORS, candle_chart
 from fin_agent.config import Settings
-from fin_agent.data import market_data
+from fin_agent.data import angel_market, market_data
 from fin_agent.llm import factory
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -92,6 +92,13 @@ def load_candles_fresh(ticker: str, interval: str) -> pd.DataFrame:
     return market_data.fetch_history(ticker, period=next_candle.TIMEFRAMES[interval], interval=interval).bars
 
 
+@st.cache_data(ttl=20, show_spinner=False)
+def load_angel_candles(ticker: str, interval: str) -> pd.DataFrame:
+    """Live NSE candles from Angel One (needs today's angelone.py --login); refreshed at most every 20 s."""
+    return angel_market.candles(ticker, interval)
+
+
+PRICE_SOURCES = ("Yahoo (free, ~15 min late)", "Angel One (live, needs today's login)")
 AUTO_REFRESH_SECONDS = 60
 
 
@@ -1269,7 +1276,10 @@ def chart_tab() -> None:
                                  "The chart, regime and support/resistance use the candles you pick here.")
     c2.write("")
     clicked = c2.button("Analyze", type="primary", width="stretch")
-    i1, i2 = st.columns([4, 1])
+    i1, i3, i2 = st.columns([3, 2, 1])
+    source = i3.selectbox("Prices from", PRICE_SOURCES, key="chart_source", disabled=interval == "1d",
+                          help="Angel One gives live NSE prices for 5m/15m/1h candles after "
+                               "python scripts\\angelone.py --login. Other symbols and daily candles use Yahoo.")
     st.session_state.setdefault("chart_indicators", list(DEFAULT_INDICATORS))
     shown_indicators = i1.multiselect(
         "Indicators", INDICATORS, key="chart_indicators",
@@ -1328,14 +1338,28 @@ def chart_tab() -> None:
     for pattern in sig["patterns"]:
         st.info(f"Last candle pattern: {pattern}")
 
-    chart_bars = bars
+    chart_bars, live_ok = bars, False
     if interval != "1d":
         try:
-            with st.spinner(f"Fetching {interval} candles…"):
-                chart_bars = (load_candles_fresh if auto else load_candles)(hist.ticker, interval)
+            live = source == PRICE_SOURCES[1] and hist.ticker.endswith(".NS")
+            if source == PRICE_SOURCES[1] and not live:
+                st.caption(f"Angel One live prices are for NSE stocks; {hist.ticker} uses Yahoo.")
+            chart_bars = None
+            if live:
+                try:
+                    with st.spinner(f"Fetching live {interval} candles from Angel One…"):
+                        chart_bars = load_angel_candles(hist.ticker, interval)
+                    live_ok = True
+                    st.caption(f"🟢 Live Angel One prices. Last candle {chart_bars.index[-1]:%d %b %H:%M} IST "
+                               "(still forming until it closes).")
+                except angelone.AngelError as exc:
+                    st.warning(f"Live prices unavailable: {exc} Showing Yahoo prices (often ~15 min late).")
+            if chart_bars is None:
+                with st.spinner(f"Fetching {interval} candles…"):
+                    chart_bars = (load_candles_fresh if auto else load_candles)(hist.ticker, interval)
         except market_data.MarketDataError as exc:
             st.warning(f"{interval} candles unavailable ({exc}). Showing daily candles.")
-            interval = "1d"
+            chart_bars, interval = bars, "1d"
     regime_section(chart_bars, interval)
     levels = find_levels(chart_bars)
     recent_patterns = patterns_mod.latest(chart_bars, within=30)
@@ -1368,8 +1392,8 @@ def chart_tab() -> None:
         st.caption("✏️ Draw with the tools at the top right of the chart (line, freehand, box, eraser). Drawings "
                    "disappear when the page reloads; to keep a level, save it as a mark below."
                    + (f" 🔄 Auto-refresh on: last candle {shown.index[-1]:%d %b %H:%M}, fetched "
-                      f"{datetime.now(ZoneInfo('Asia/Kolkata')):%H:%M:%S} IST. Yahoo prices are often about 15 "
-                      "minutes late." if auto else ""))
+                      f"{datetime.now(ZoneInfo('Asia/Kolkata')):%H:%M:%S} IST."
+                      + ("" if live_ok else " Yahoo prices are often about 15 minutes late.") if auto else ""))
     marks_section(hist.ticker, float(bars["Close"].iloc[-1]), marks)
     patterns_section(chart_bars, interval, recent_patterns)
 

@@ -21,8 +21,8 @@ import requests
 from fin_agent.broker.angelone import API_ROOT, TIMEOUT, AngelConfig, AngelError, AngelLoginNeeded, _check, \
     _headers, load_session
 from fin_agent.broker.kite_orders import OrderDraft, OrderError, live_enabled
+from fin_agent.data.angel_market import SEARCH_PATH, pick_token
 
-SEARCH_PATH = "/rest/secure/angelbroking/order/v1/searchScrip"
 PLACE_PATH = "/rest/secure/angelbroking/order/v1/placeOrder"
 CANCEL_PATH = "/rest/secure/angelbroking/order/v1/cancelOrder"
 PRODUCTS = {"MIS": "INTRADAY", "CNC": "DELIVERY"}
@@ -54,12 +54,10 @@ def _post(path: str, body: dict[str, Any], http) -> Any:
 
 def symbol_token(symbol: str, http=requests) -> tuple[str, str]:
     """(trading symbol, token) for an NSE equity, e.g. ('SBIN-EQ', '3045')."""
-    data = _post(SEARCH_PATH, {"exchange": "NSE", "searchscrip": symbol}, http) or []
-    want = f"{symbol.upper()}-EQ"
-    for row in data if isinstance(data, list) else []:
-        if str(row.get("tradingsymbol", "")).upper() == want and row.get("symboltoken"):
-            return want, str(row["symboltoken"])
-    raise OrderError(f"Angel One has no NSE equity called {want}. Nothing was placed.")
+    found = pick_token(_post(SEARCH_PATH, {"exchange": "NSE", "searchscrip": symbol}, http), symbol)
+    if found is None:
+        raise OrderError(f"Angel One has no NSE equity called {symbol.upper()}-EQ. Nothing was placed.")
+    return found
 
 
 def order_body(draft: OrderDraft, trading_symbol: str, token: str) -> dict[str, str]:

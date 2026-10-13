@@ -4,6 +4,7 @@ Usage:
     python scripts/angelone.py --login      # once a day: type your PIN (hidden) and the 6-digit app code
     python scripts/angelone.py --check      # who is logged in, holdings count, today's trades count
     python scripts/angelone.py --holdings   # your holdings
+    python scripts/angelone.py --candles SBIN   # live price and the last 15-minute candles (checks live data)
     python scripts/angelone.py --logout     # forget today's login on this computer
 
 Needs FIN_AGENT_ANGEL_API_KEY and FIN_AGENT_ANGEL_CLIENT_CODE in .env. Your PIN and code are typed
@@ -18,6 +19,7 @@ import sys
 
 from fin_agent import config  # noqa: F401  (loads .env)
 from fin_agent.broker import angelone
+from fin_agent.data import angel_market
 
 
 def main() -> int:
@@ -27,6 +29,7 @@ def main() -> int:
     g = p.add_mutually_exclusive_group(required=True)
     for flag in ("--login", "--check", "--holdings", "--logout"):
         g.add_argument(flag, action="store_true")
+    g.add_argument("--candles", metavar="SYMBOL", help="NSE symbol, e.g. SBIN: live price and last candles")
     args = p.parse_args()
     try:
         if args.logout:
@@ -40,6 +43,17 @@ def main() -> int:
             totp = input("6-digit code from your authenticator app: ")
             angelone.save_session(angelone.login(cfg, pin, totp))
             print("✅ Logged in to Angel One for today (read-only in FinTray).")
+            return 0
+        if args.candles:
+            ticker = args.candles.strip().upper()
+            ticker = ticker if ticker.endswith(".NS") else f"{ticker}.NS"
+            print(f"Live price {ticker}: ₹{angel_market.ltp(ticker):,.2f}")
+            df = angel_market.candles(ticker, "15m")
+            print(f"{len(df)} fifteen-minute candles; the last three (IST):")
+            for t, r in df.tail(3).iterrows():
+                print(f"  {t:%d %b %H:%M}  O {r.Open:,.2f}  H {r.High:,.2f}  L {r.Low:,.2f}  C {r.Close:,.2f}  "
+                      f"V {r.Volume:,.0f}")
+            print("✅ Live Angel One prices work.")
             return 0
         api = angelone.connect()
         if args.holdings:

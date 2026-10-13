@@ -665,3 +665,26 @@ def test_chart_indicator_picker_and_auto_refresh(app):
 def test_auto_refresh_is_off_on_daily_candles(app):
     app.run()
     assert app.toggle(key="chart_auto").disabled
+
+
+def test_chart_live_angel_prices_and_fallback(app, monkeypatch):
+    from fin_agent.broker.angelone import AngelLoginNeeded
+    from fin_agent.data import angel_market
+    idx = pd.date_range("2026-10-13 09:15", periods=80, freq="15min", tz="Asia/Kolkata")
+    live = pd.DataFrame({"Open": 800.0, "High": 801.0, "Low": 799.0, "Close": np.linspace(800, 812, 80),
+                         "Volume": 1000.0}, index=idx)
+    monkeypatch.setattr(angel_market, "candles", lambda t, i: live)
+    app.run()
+    app.selectbox(key="chart_interval").set_value("15m").run()
+    app.selectbox(key="chart_source").set_value("Angel One (live, needs today's login)")
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    assert any("Live Angel One prices" in c.value for c in app.caption)
+
+    def logged_out(t, i):
+        raise AngelLoginNeeded("Not logged in to Angel One today.")
+    monkeypatch.setattr(angel_market, "candles", logged_out)
+    st.cache_data.clear()
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    assert any("Live prices unavailable: Not logged in" in w.value for w in app.warning)

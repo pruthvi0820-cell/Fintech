@@ -72,9 +72,11 @@ def _safe_json(value: Any) -> str:
 
 def build_html(*, symbol: str, interval: str, bars: pd.DataFrame | None, precision: int = 2,
                lines: list[dict[str, Any]] | None = None, notes: list[dict[str, Any]] | None = None,
-               feed_key_: str | None = None, source: str = "", poll_ms: int = 5000, height: int = 620) -> str:
+               zones: list[dict[str, Any]] | None = None, feed_key_: str | None = None, source: str = "",
+               poll_ms: int = 5000, height: int = 620) -> str:
     config = {"symbol": symbol, "precision": precision, "period": period(interval), "timezone": "Asia/Kolkata",
-              "bars": bars_payload(bars), "lines": lines or [], "notes": notes or [], "source": source,
+              "bars": bars_payload(bars), "lines": lines or [], "notes": notes or [], "zones": zones or [],
+              "source": source,
               "feedUrl": FEED_URL.format(key=feed_key_) if feed_key_ else None, "pollMs": int(poll_ms),
               "storageKey": f"fintray.v1.{feed_key(symbol, 'x')[:-2]}"}
     chart_h = height - 44
@@ -126,3 +128,47 @@ document.getElementById("ft-title").textContent = window.FINTRAY_CHART.symbol;</
 <script src="{LIB_URL}"></script>
 <script src="{APP_URL}"></script>
 </body></html>"""
+
+
+SMC_LAYERS = ("Structure (BOS / CHoCH)", "Order blocks", "Fair value gaps", "Liquidity (sweeps, equal highs/lows)",
+              "PDH / PDL", "AMD / sessions")
+SMC_DEFAULT = ("Structure (BOS / CHoCH)", "Fair value gaps", "PDH / PDL", "AMD / sessions")
+_GREEN, _RED, _BLUE, _GOLD = "#1a9850", "#d73027", "#2962ff", "#f2a900"
+
+
+def smc_overlays(bars: pd.DataFrame, result: Any, layers: tuple[str, ...] | list[str] = SMC_DEFAULT,
+                 recent: int = 8) -> tuple[list[dict], list[dict], list[dict]]:
+    """(lines, notes, zones) for the Pro chart from an analysis.smc.SMC result: the latest few of each,
+    open zones only (filled gaps and mitigated blocks are left out)."""
+    ms = [int(pd.Timestamp(t).timestamp() * 1000) for t in bars.index]
+    if not ms:
+        return [], [], []
+    last = ms[-1]
+    lines, notes, zones = [], [], []
+    picks = []
+    if "Structure (BOS / CHoCH)" in layers:
+        picks += [s for s in result.signals if s.kind.startswith(("BOS", "CHoCH"))][-recent:]
+    if "Liquidity (sweeps, equal highs/lows)" in layers:
+        picks += [s for s in result.signals if s.kind.startswith("sweep")][-recent:]
+        lines += [{"price": lv["price"], "color": _GOLD, "label": "EQH" if lv["label"] == "equal highs" else "EQL",
+                   "dash": True} for lv in result.levels if lv["label"].startswith("equal")]
+    if "AMD / sessions" in layers:
+        picks += [s for s in result.signals if s.kind.startswith("AMD")][-3:]
+    for s in sorted(picks, key=lambda p: p.known_at):
+        notes.append({"timestamp": ms[s.known_at], "price": s.entry, "color": _GREEN if s.direction > 0 else _RED,
+                      "text": {"sweep bullish": "⚡ sweep ↑", "sweep bearish": "⚡ sweep ↓"}.get(s.kind, s.kind)})
+    if "PDH / PDL" in layers:
+        lines += [{"price": lv["price"], "color": "#9aa5b1", "label": lv["label"], "dash": True}
+                  for lv in result.levels if lv["label"] in ("PDH", "PDL")]
+    want = {"OB": "Order blocks", "FVG": "Fair value gaps", "Asia range": "AMD / sessions",
+            "Opening range": "AMD / sessions"}
+    for kind, layer in want.items():
+        if layer not in layers:
+            continue
+        found = [z for z in result.zones if z.kind == kind and (z.ended is None or kind.endswith("range"))]
+        for z in found[-(3 if kind.endswith("range") else 4):]:
+            color = _BLUE if z.direction == 0 else (_GREEN if z.direction > 0 else _RED)
+            end = ms[z.known_at] if kind.endswith("range") else last
+            zones.append({"start": ms[z.start], "end": end, "top": z.top, "bottom": z.bottom, "color": color,
+                          "label": kind if z.direction == 0 else f"{'+' if z.direction > 0 else '-'}{kind}"})
+    return lines, notes, zones

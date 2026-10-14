@@ -3,7 +3,8 @@
  * Reads its settings from window.FINTRAY_CHART (built by fin_agent/web/tvchart.py):
  *   symbol, title, precision, period {type, span}, timezone, bars [{timestamp ms, open, high, low, close, volume}],
  *   feedUrl (JSON written every few seconds by the page, or null), pollMs, storageKey,
- *   lines [{price, color, label, dash}], notes [{timestamp, price, text, color}], source.
+ *   lines [{price, color, label, dash}], notes [{timestamp, price, text, color}],
+ *   zones [{start, end, top, bottom, color, label}] (Smart Money boxes), source.
  * Your drawings and indicator choices are saved in this browser (localStorage), per symbol.
  * FinTray's own lines (levels, marks, trades) are locked: change them in FinTray, not here.
  */
@@ -31,15 +32,29 @@
     crosshair: { horizontal: { line: { color: MUTED } }, vertical: { line: { color: MUTED } } }
   };
 
-  // A rectangle (zone) drawing: two clicks, opposite corners.
+  function fade(hex, alpha) {
+    var m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || "");
+    return m ? "rgba(" + parseInt(m[1], 16) + "," + parseInt(m[2], 16) + "," + parseInt(m[3], 16) + "," + alpha + ")"
+             : "rgba(41, 98, 255, " + alpha + ")";
+  }
+  // A rectangle (zone): two clicks, opposite corners. FinTray's zones pass {color, label} in extendData.
   K.registerOverlay({
     name: "ftRect", totalStep: 3, needDefaultPointFigure: true, needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true, styles: { polygon: { color: "rgba(41, 98, 255, 0.15)" } },
+    needDefaultYAxisFigure: true,
     createPointFigures: function (p) {
       var c = p.coordinates;
       if (c.length < 2) { return []; }
-      return [{ type: "polygon", attrs: { coordinates: [c[0], { x: c[1].x, y: c[0].y }, c[1], { x: c[0].x, y: c[1].y }] },
-                styles: { style: "stroke_fill", borderColor: "#2962ff", borderSize: 1 } }];
+      var ext = p.overlay.extendData || {};
+      var col = typeof ext === "object" && ext.color ? ext.color : "#2962ff";
+      var figs = [{ type: "polygon", attrs: { coordinates: [c[0], { x: c[1].x, y: c[0].y }, c[1], { x: c[0].x, y: c[1].y }] },
+                    styles: { style: "stroke_fill", color: fade(col, 0.14), borderColor: col, borderSize: 1 } }];
+      if (ext.label) {
+        figs.push({ type: "text", attrs: { x: Math.min(c[0].x, c[1].x) + 3, y: Math.min(c[0].y, c[1].y) + 2,
+                                            text: ext.label, align: "left", baseline: "top" },
+                    styles: { color: col, size: 11, backgroundColor: "rgba(0,0,0,0)", borderSize: 0, paddingLeft: 0,
+                              paddingTop: 0, paddingRight: 0, paddingBottom: 0 } });
+      }
+      return figs;
     }
   });
 
@@ -176,6 +191,10 @@
                             points: [{ timestamp: first ? first.timestamp : 0, value: l.price }],
                             styles: { line: { color: l.color, style: l.dash ? "dashed" : "solid", dashedValue: [4, 4] },
                                       text: { backgroundColor: l.color, borderColor: l.color } } });
+    });
+    (C.zones || []).forEach(function (z) {
+      chart.createOverlay({ name: "ftRect", groupId: "fintray", lock: true, extendData: { color: z.color, label: z.label },
+                            points: [{ timestamp: z.start, value: z.top }, { timestamp: z.end, value: z.bottom }] });
     });
     (C.notes || []).forEach(function (n) {
       chart.createOverlay({ name: "simpleAnnotation", groupId: "fintray", lock: true, extendData: n.text,

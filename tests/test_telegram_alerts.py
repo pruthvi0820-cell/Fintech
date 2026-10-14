@@ -72,6 +72,7 @@ def runner(monkeypatch, tmp_path):
     spec = importlib.util.spec_from_file_location("alerts_runner", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod, "smc_alerts", lambda tickers: [])      # no network in tests
     return mod
 
 
@@ -146,3 +147,23 @@ def test_terminal_events_are_sent(runner):
     assert "Paper Terminal · 13 Oct 22:05 IST" in sent[0] and "take-profit at 4,230.00" in sent[0]
     assert runner.terminal_once(TOKEN, "42", now=now, send=lambda *a: sent.append("x"),
                                 refresh=lambda term, syms: Refresh()) == 0 and len(sent) == 1
+
+
+
+def test_smc_alerts_only_fresh_signals(runner):
+    import numpy as np
+    import pandas as pd
+    path = Path(__file__).resolve().parent.parent / "scripts" / "alerts_runner.py"
+    spec = importlib.util.spec_from_file_location("alerts_runner_real", path)
+    real = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(real)
+    asia = [101.0 + 0.5 * np.sin(i) for i in range(28)]
+    c = np.array(asia + [100.8, 100.9])
+    o = np.r_[c[0], c[:-1]]
+    lo = np.minimum(o, c) - 0.2
+    lo[-2] = 99.5                                                     # the 07:00 candle sweeps the Asian low
+    bars = pd.DataFrame({"Open": o, "High": np.maximum(o, c) + 0.2, "Low": lo, "Close": c, "Volume": 1.0},
+                        index=pd.date_range("2026-10-13 00:00", periods=len(c), freq="15min", tz="UTC"))
+    got = real.smc_alerts(["GC=F"], fetch=lambda tk: bars)
+    assert {a.kind for a in got} == {"smc"} and any("GC=F: AMD long on 15m at 100.80" in a.text for a in got)
+    assert real.smc_alerts(["GC=F"], fetch=lambda tk: bars.iloc[:20]) == []          # too few candles

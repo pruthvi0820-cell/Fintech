@@ -34,6 +34,7 @@ from fin_agent.data.fundamentals import FundamentalsError, Statements
 from fin_agent.analysis import alerts as alerts_mod
 from fin_agent.broker import angel_orders, angelone, kite_orders, mt5, zerodha
 from fin_agent.analysis import chart_marks as marks_mod
+from fin_agent.analysis import smc as smc_mod
 from fin_agent.analysis import intraday_backtest as ibt
 from fin_agent.analysis import next_candle
 from fin_agent.analysis import risk_engine
@@ -1438,6 +1439,12 @@ def chart_tab() -> None:
                      help="Pro: TradingView-style drawing tools (saved per symbol in this browser), 27 indicators, "
                           "live updates every 5 s without reloading. Classic: the original chart.")
     pro = style == CHART_STYLES[0]
+    st.session_state.setdefault("chart_smc", list(tvchart.SMC_DEFAULT))
+    smc_layers = st.multiselect("Smart Money layers (Pro chart)", tvchart.SMC_LAYERS, key="chart_smc",
+                                disabled=not pro,
+                                help="ICT / Smart Money concepts drawn by FinTray's rules: BOS/CHoCH, order blocks, "
+                                     "fair value gaps, sweeps and equal highs/lows, previous day high/low, the Asian "
+                                     "(or NSE opening) range and AMD. Measured against chance below the chart.")
     if auto and not pro:
         auto_refresh_tick()
     with st.expander("Backtest settings"):
@@ -1522,6 +1529,8 @@ def chart_tab() -> None:
     regime_section(chart_bars, interval)
     levels = find_levels(chart_bars)
     recent_patterns = patterns_mod.latest(chart_bars, within=30)
+    smc_market = "nse" if hist.ticker.endswith((".NS", ".BO")) or hist.ticker.startswith("^NSE") else "24h"
+    smc_result = smc_mod.analyze(chart_bars, smc_market)
 
     intraday = interval != "1d"
     plan = trade_plan_section(chart_bars if intraday else bars, cost / 100, interval) if inr else None
@@ -1542,9 +1551,11 @@ def chart_tab() -> None:
         notes = [{"timestamp": int(pd.Timestamp(chart_bars.index[pt.known_at]).timestamp() * 1000), "price": pt.entry,
                   "text": f"📐 {pt.kind}", "color": "#1a9850" if pt.direction > 0 else "#d73027"}
                  for pt in recent_patterns]
+        smc_lines, smc_notes, smc_zones = tvchart.smc_overlays(chart_bars, smc_result, smc_layers)
         components.html(tvchart.build_html(
             symbol=hist.ticker if source != PRICE_SOURCES[2] else mt5_symbol, interval=interval, bars=chart_bars,
-            lines=pro_chart_lines(hist.ticker, plan, levels, marks), notes=notes,
+            lines=pro_chart_lines(hist.ticker, plan, levels, marks) + smc_lines, notes=notes + smc_notes,
+            zones=smc_zones,
             feed_key_=key if auto else None, source="live" if live_ok else "Yahoo (often ~15 min late)"), height=620)
         st.caption("Draw with the tools on the left (trend line, ray, horizontal/vertical lines, channels, Fibonacci, "
                    "zone, note; 🧲 snaps to prices; select a drawing and press Delete to remove it). Drawings and "
@@ -1553,6 +1564,7 @@ def chart_tab() -> None:
                    + (" 🔴 Live: updates every 5 s." if auto else " Turn on Auto-refresh for live updates."))
         marks_section(hist.ticker, float(bars["Close"].iloc[-1]), marks)
         patterns_section(chart_bars, interval, recent_patterns)
+        smc_section(chart_bars, interval, smc_result, smc_market)
         chart_tab_backtest(result, entry, exit_, hold, cost)
         return
     try:
@@ -1575,7 +1587,38 @@ def chart_tab() -> None:
                       + ("" if live_ok else " Yahoo prices are often about 15 minutes late.") if auto else ""))
     marks_section(hist.ticker, float(bars["Close"].iloc[-1]), marks)
     patterns_section(chart_bars, interval, recent_patterns)
+    smc_section(chart_bars, interval, smc_result, smc_market)
     chart_tab_backtest(result, entry, exit_, hold, cost)
+
+
+def smc_section(bars: pd.DataFrame, interval: str, result, market: str) -> None:
+    """Smart Money / ICT on this symbol: where things stand now, and each signal measured against chance."""
+    with st.expander(f"🧠 Smart Money (ICT) on this symbol ({interval} candles), measured on its own history"):
+        trend = {1: "bullish (last break was up)", -1: "bearish (last break was down)", 0: "no structure break yet"}
+        st.markdown(f"**Structure now:** {trend[result.trend]}")
+        amd_today = [s for s in result.signals if s.kind.startswith("AMD") and s.known_at >= len(bars) - 40]
+        if amd_today:
+            a = amd_today[-1]
+            st.info(f"AMD: the {'lows' if a.direction > 0 else 'highs'} of the "
+                    f"{'Asian' if market == '24h' else 'opening'} range were swept and price closed back inside → "
+                    f"{'up' if a.direction > 0 else 'down'} towards {a.target:,.2f}, invalid beyond {a.stop:,.2f}. "
+                    "A signal from FinTray's rules, not advice: check its row in the table.")
+        if interval == "1d":
+            st.caption("AMD needs intraday candles (5m/15m/1h).")
+        rows = smc_mod.measure(bars, market, result)
+        pct = lambda x: "–" if x is None else f"{x * 100:.0f}%"   # noqa: E731
+        st.dataframe(pd.DataFrame([{
+            "Signal": r["signal"], "Found": r["found"], "Worked": r["worked"], "Failed": r["failed"],
+            "Unfinished": r["unfinished"], "Worked %": pct(r["work_rate"]),
+            "Likely range": "–" if r["low"] is None else f"{r['low'] * 100:.0f}–{r['high'] * 100:.0f}%",
+            "Fair rate (no edge)": pct(r["fair_rate"]), "What it means": smc_mod.verdict(r)} for r in rows]),
+            hide_index=True, width="stretch")
+        st.caption(f"Entry at the close of the candle where the signal was complete (no hindsight). BOS/CHoCH/sweeps: "
+                   f"stop at the protected swing or the sweep's wick, target {smc_mod.TARGET_R:g}× the risk, within "
+                   f"{smc_mod.HORIZON} candles. AMD: stop beyond the sweep, target the range's other side, by the end "
+                   "of the day. Fair rate = the same stop and target distances from every candle of this history. "
+                   "Sessions are approximate (UTC for gold: Asia 00:00–07:00, London 07:00–10:00, New York "
+                   "12:00–15:00; NSE: opening 09:15–10:00, sweep until 11:30 IST).")
 
 
 def chart_tab_backtest(result, entry: int, exit_: int, hold: int, cost: float) -> None:

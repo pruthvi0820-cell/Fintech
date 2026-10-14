@@ -83,7 +83,10 @@ def test_chart_works_in_a_real_browser(tmp_path):
                               lines=[{"price": 103.0, "color": "#d73027", "label": "Stop 103", "dash": True},
                                      {"price": 108.0, "color": "#1a9850", "label": "Target 108", "dash": False}],
                               notes=[{"timestamp": tvchart.bars_payload(b)[10]["timestamp"], "price": 102.0,
-                                      "text": "double bottom", "color": "#1a9850"}])
+                                      "text": "double bottom", "color": "#1a9850"}],
+                              zones=[{"start": tvchart.bars_payload(b)[20]["timestamp"],
+                                      "end": tvchart.bars_payload(b)[25]["timestamp"], "top": 103.0, "bottom": 102.5,
+                                      "color": "#1a9850", "label": "+FVG"}])
     (site / "index.html").write_text(html, encoding="utf-8")
     nxt = pd.DataFrame({"Open": [106.0], "High": [107.0], "Low": [105.5], "Close": [106.6], "Volume": [10.0]},
                        index=[b.index[-1] + pd.Timedelta(minutes=15)])
@@ -104,6 +107,22 @@ def test_chart_works_in_a_real_browser(tmp_path):
     out = json.loads(run.stdout.strip().splitlines()[-1])
     assert "fatal" not in out, out
     assert out["errors"] == []
-    assert out["before"]["bars"] == 60 and out["before"]["fintray"] == 3 and out["before"]["user"] == 1
+    assert out["before"]["bars"] == 60 and out["before"]["fintray"] == 4 and out["before"]["user"] == 1
     assert out["before"]["indicators"] == ["MA", "VOL"]
     assert out["after"]["bars"] == 61 and out["after"]["last"] == 106.6
+
+
+def test_smc_overlays_layers():
+    from fin_agent.analysis import smc
+    rng = np.random.default_rng(5)
+    c = 1000 * np.exp(np.cumsum(rng.normal(0, 0.003, 600)))
+    o = np.r_[c[0], c[:-1]]
+    b = pd.DataFrame({"Open": o, "High": np.maximum(o, c) * 1.001, "Low": np.minimum(o, c) * 0.999, "Close": c,
+                      "Volume": 1.0}, index=pd.date_range("2026-10-01", periods=600, freq="15min", tz="UTC"))
+    res = smc.analyze(b)
+    lines, notes, zones = tvchart.smc_overlays(b, res, tvchart.SMC_LAYERS)
+    assert {"PDH", "PDL"} <= {line["label"] for line in lines}
+    assert any(n["text"].startswith(("BOS", "CHoCH")) for n in notes)
+    assert {z["label"].lstrip("+-") for z in zones} >= {"Asia range"}
+    assert all(z["start"] <= z["end"] for z in zones)
+    assert tvchart.smc_overlays(b, res, []) == ([], [], [])

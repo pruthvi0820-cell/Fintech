@@ -28,7 +28,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 from fin_agent import config  # noqa: F401  (loads .env, where the Telegram token lives)
+from fin_agent.analysis import smc
 from fin_agent.analysis.alerts import Alert, load_watchlist, watchlist_path
 from fin_agent.analysis.chart_marks import load_marks
 from fin_agent.analysis.events import EventStore, default_path as events_path, detect_events
@@ -84,6 +87,32 @@ def message(alerts: list[Alert], now: datetime) -> str:
     return "\n".join(lines)
 
 
+SMC_KINDS = ("AMD long", "AMD short", "CHoCH up", "CHoCH down", "sweep bullish", "sweep bearish")
+
+
+def smc_alerts(tickers: list[str], fetch=None) -> list[Alert]:
+    """Fresh Smart Money signals (last 2 fifteen-minute candles) on the watchlist and gold."""
+    def default_fetch(tk: str):
+        return market_data.fetch_history(tk, period="5d", interval="15m").bars
+    fetch = fetch or default_fetch
+    out = []
+    for tk in dict.fromkeys(tickers):
+        try:
+            bars = fetch(tk)
+        except market_data.MarketDataError:
+            continue
+        if bars is None or len(bars) < 30:
+            continue
+        market = "nse" if tk.endswith((".NS", ".BO")) else "24h"
+        for s in smc.analyze(bars, market).signals:
+            if s.kind in SMC_KINDS and s.known_at >= len(bars) - 2:
+                when = pd.Timestamp(bars.index[s.known_at]).tz_convert(IST)
+                out.append(Alert("medium", "smc", tk,
+                                 f"{tk}: {s.kind} on 15m at {s.entry:,.2f} ({when:%d %b %H:%M} IST). Invalid beyond "
+                                 f"{s.stop:,.2f}; aims for {s.target:,.2f}. Check its measured row in FinTray first."))
+    return out
+
+
 def run_once(token: str, chat_id: str, scan_news: bool = True, now: datetime | None = None,
              send=telegram.send) -> int:
     """One check: scan news (saving events), gather alerts, send the ones not sent before."""
@@ -120,6 +149,7 @@ def run_once(token: str, chat_id: str, scan_news: bool = True, now: datetime | N
                               paper=PaperBook(paper_path()), journal=Journal(journal_path()), news=items,
                               marks=load_marks(), calendar=calendar, now=now, live=live,
                               capital=live_trades.load_capital())
+    alerts += smc_alerts([t for t in load_watchlist() if t.endswith(".NS")] + ["GC=F"])
     path = sent_path()
     sent = load_sent(path, now)
     fresh = new_alerts(alerts, sent)

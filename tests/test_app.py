@@ -781,3 +781,20 @@ def test_pro_chart_live_feed_file(app):
         assert data["source"].startswith("Yahoo") and len(data["bars"]) == 300
     finally:
         live.unlink(missing_ok=True)
+
+
+def test_smart_money_section_and_layers(app):
+    import json as _json
+    app.run()
+    app.selectbox(key="chart_interval").set_value("15m").run()
+    app.multiselect(key="chart_smc").set_value(["Structure (BOS / CHoCH)", "PDH / PDL", "Fair value gaps"])
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    table = next(d.value for d in app.dataframe if "Signal" in d.value.columns)
+    assert list(table["Signal"]) == ["BOS up", "BOS down", "CHoCH up", "CHoCH down", "sweep bullish",
+                                     "sweep bearish", "AMD long", "AMD short"]
+    assert any(m.value.startswith("**Structure now:**") for m in app.markdown)
+    cfg = _json.loads(next(e for e in app.get("iframe")).proto.srcdoc.split("window.FINTRAY_CHART = ")[1]
+                      .split(";\n")[0])
+    assert {"PDH", "PDL"} <= {line["label"] for line in cfg["lines"]}
+    assert all(not n["text"].startswith("⚡") for n in cfg["notes"])           # sweeps layer not picked

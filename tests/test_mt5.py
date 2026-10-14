@@ -32,14 +32,18 @@ class FakeMT5:
         self._positions, self._deals, self._orders = positions, deals, orders
         self.calls = []
 
-    def initialize(self):
-        return True
+    def initialize(self, path=None):
+        self.calls.append(("initialize", path))
+        return self.init_ok
+
+    init_ok = True
+    error = (1, "Success")
 
     def shutdown(self):
         self.calls.append("shutdown")
 
     def last_error(self):
-        return (1, "Success")
+        return self.error
 
     def account_info(self):
         if not self.logged_in:
@@ -162,3 +166,20 @@ def test_missing_package_is_explained(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", no_mt5)
     with pytest.raises(mt5.MT5Error, match=r'pip install -e "\.\[mt5\]"'):
         mt5.load_lib()
+
+
+
+def test_authorization_failed_explains_and_path_setting(monkeypatch, tmp_path):
+    lib = FakeMT5()
+    lib.init_ok, lib.error = False, (-6, "Terminal: Authorization failed")
+    with pytest.raises(mt5.MT5Error, match="FIN_AGENT_MT5_PATH"):
+        mt5.connect(lib)
+    monkeypatch.setenv("FIN_AGENT_MT5_PATH", str(tmp_path / "missing.exe"))
+    with pytest.raises(mt5.MT5Error, match="doesn't exist"):
+        mt5.connect(FakeMT5())
+    exe = tmp_path / "terminal64.exe"
+    exe.write_bytes(b"")
+    monkeypatch.setenv("FIN_AGENT_MT5_PATH", f'"{exe}"')
+    ok = FakeMT5()
+    mt5.connect(ok)
+    assert ok.calls[0] == ("initialize", str(exe))

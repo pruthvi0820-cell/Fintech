@@ -12,6 +12,7 @@ Two locks:
 
 Times: MT5 reports times in the broker's server clock (XM: UTC+2 or UTC+3). They are converted to
 IST using FIN_AGENT_MT5_UTC_OFFSET (hours) if set, else the offset measured from the latest tick.
+With two MT5s installed, set FIN_AGENT_MT5_PATH to the terminal64.exe you log in to.
 Function names and fields follow the MetaTrader5 package documentation [Likely: check with
 `python scripts/mt5.py --check`].
 """
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -53,9 +55,22 @@ def load_lib():
 def connect(lib=None):
     """Attach to the running MT5 program; refuse anything but a demo account. Returns the library."""
     lib = lib or load_lib()
-    if not lib.initialize():
-        raise MT5Error(f"Can't reach MetaTrader 5 ({lib.last_error()}). Open the MT5 program, log in to your XM "
-                       "demo account, and try again.")
+    path = os.getenv("FIN_AGENT_MT5_PATH", "").strip().strip('"')
+    if path and not Path(path).is_file():
+        raise MT5Error(f"FIN_AGENT_MT5_PATH points to {path}, which doesn't exist. It should be the full path of "
+                       "terminal64.exe of the MT5 you log in to (right-click its shortcut > Open file location).")
+    if not (lib.initialize(path=path) if path else lib.initialize()):
+        err = lib.last_error()
+        code = err[0] if isinstance(err, tuple) and err else None
+        if code == -6:
+            raise MT5Error(f"MT5 refused the connection ({err}). Usually the MT5 that Python opened is not the one "
+                           "you logged in to (two MT5s installed), or it isn't connected. 1) In your MT5, the bottom-"
+                           "right corner must show a ping like '45 ms', not 'No connection' or 'Invalid account'. "
+                           "2) Put the path of that MT5 in .env, e.g. FIN_AGENT_MT5_PATH=C:\\Program Files\\XM "
+                           "Global MT5\\terminal64.exe (right-click its shortcut > Open file location). "
+                           "Then try again.")
+        raise MT5Error(f"Can't reach MetaTrader 5 ({err}). Open the MT5 program, log in to your XM demo account, "
+                       "and try again.")
     info = lib.account_info()
     if info is None:
         raise MT5Error("MetaTrader 5 is open but not logged in. File > Login to Trade Account, then try again.")

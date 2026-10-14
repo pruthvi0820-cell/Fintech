@@ -114,6 +114,19 @@ def candles(symbol: str, interval: str, count: int = 1500, lib=None) -> pd.DataF
     return out.sort_index()
 
 
+def tick(symbol: str, lib=None) -> tuple[float, float, datetime]:
+    """Live (bid, ask, time in UTC) from MT5."""
+    lib = connect(lib)
+    sym = symbol.strip().upper()
+    if lib.symbol_info(sym) is None or not lib.symbol_select(sym, True):
+        raise MT5Error(f"MT5 has no symbol {sym}. In MT5 open View > Market Watch to see the exact name (XM: GOLD).")
+    t = lib.symbol_info_tick(sym)
+    if t is None or not getattr(t, "bid", 0) or not getattr(t, "ask", 0):
+        raise MT5Error(f"MT5 has no live price for {sym} now (market closed?).")
+    offset, _ = utc_offset_hours(lib, sym)
+    return float(t.bid), float(t.ask), datetime.fromtimestamp(int(t.time) - offset * 3600, tz=timezone.utc)
+
+
 def _contract_size(lib, symbol: str) -> float:
     info = lib.symbol_info(symbol)
     size = float(getattr(info, "trade_contract_size", 0) or 0) if info is not None else 0.0

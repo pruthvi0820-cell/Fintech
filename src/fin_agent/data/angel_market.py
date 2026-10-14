@@ -74,11 +74,14 @@ def _num(x: Any) -> float:
         return float("nan")
 
 
-def candles(ticker: str, interval: str, http=requests, now: datetime | None = None) -> pd.DataFrame:
-    """OHLCV candles in IST, oldest first, including the candle still forming."""
+def candles(ticker: str, interval: str, http=requests, now: datetime | None = None,
+            days: int | None = None) -> pd.DataFrame:
+    """OHLCV candles in IST, oldest first, including the candle still forming. `days`: how far back
+    (default: the most this interval allows in one request)."""
     if interval not in INTERVALS:
         raise AngelError(f"Angel One candles: interval must be one of {tuple(INTERVALS)}.")
-    name, days = INTERVALS[interval]
+    name, max_days = INTERVALS[interval]
+    days = max_days if days is None else max(1, min(int(days), max_days))
     _, token = symbol_token(nse_symbol(ticker), http)
     end = (now or datetime.now(IST)).astimezone(IST)
     fmt = "%Y-%m-%d %H:%M"

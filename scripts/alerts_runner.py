@@ -11,7 +11,8 @@ Usage:
 Needs FIN_AGENT_TELEGRAM_TOKEN and FIN_AGENT_TELEGRAM_CHAT_ID in .env (see notify/telegram.py).
 Same rules as the Alerts tab (pipelines/alerts.py). Each alert is sent once: what was sent is
 remembered in journal/alerts_sent.json for 14 days. Open paper trades are checked every minute
-(live Angel One prices for NSE stocks when logged in today) and each close is sent at once.
+(live Angel One prices for NSE stocks when logged in today) and each close is sent at once; so are
+Paper Terminal fills, stops and targets (gold too, at any hour the market is open).
 Nothing here can place an order.
 """
 
@@ -39,6 +40,8 @@ from fin_agent.notify import telegram
 from fin_agent.portfolio import live_trades
 from fin_agent.pipelines.alerts import gather_alerts
 from fin_agent.pipelines.paper_live import check_paper
+from fin_agent.pipelines import terminal_feed
+from fin_agent.portfolio.terminal import Terminal
 from fin_agent.portfolio.journal import Journal, default_path as journal_path
 from fin_agent.portfolio.paper import PaperBook, default_path as paper_path
 
@@ -141,6 +144,17 @@ def paper_once(token: str, chat_id: str, now: datetime | None = None, send=teleg
     return len(result.closed)
 
 
+def terminal_once(token: str, chat_id: str, now: datetime | None = None, send=telegram.send,
+                  refresh=terminal_feed.refresh) -> int:
+    """Apply the latest prices to the Paper Terminal's open trades and pending orders; send what happened."""
+    now = now or datetime.now(IST)
+    result = refresh(Terminal(), [])
+    if result.events:
+        send(token, chat_id, "\n".join([f"🖥️ Paper Terminal · {now.astimezone(IST):%d %b %H:%M} IST", *result.events,
+                                        "Virtual money: practice only."]))
+    return len(result.events)
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -180,6 +194,14 @@ def main() -> int:
         waiting_said, last_full = False, None
         while True:
             now = datetime.now(IST)
+            try:
+                n_term = terminal_once(token, chat_id, now=now)       # gold trades 24x5, so at any hour
+                if n_term:
+                    print(f"{now:%H:%M} {n_term} Paper Terminal event(s); sent to Telegram.")
+            except telegram.TelegramError as exc:
+                print(f"{now:%H:%M} terminal message failed: {exc}")
+            except Exception as exc:                        # keep the watcher alive; say what went wrong
+                print(f"{now:%H:%M} terminal check failed: {type(exc).__name__}: {exc}")
             if not (args.any_time or in_market_hours(now)) and not waiting_said:
                 print(f"{now:%H:%M} Market closed. Waiting quietly; checks restart at 9:15 IST on the next "
                       "weekday. Keep this window open.")

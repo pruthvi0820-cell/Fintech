@@ -61,14 +61,14 @@ def test_page_loads_with_examples_and_no_errors(app):
     assert not app.exception
     assert app.title[0].value == "FinTray"
     assert [b.label for b in app.button] == ["Add to watchlist", "Load world markets", "Load economic calendar",
-                                              "Analyze", "Run candle test", "Load fundamentals",
+                                              "Analyze", "Run candle test", "🔴 SELL by Market", "🔵 BUY by Market", "Load fundamentals",
                                               "Scan news now", "Save risk rules",
                                               "Import today's trades from Angel One", "Import today's trades from Zerodha", "Add fill",
                                               "Load XM demo account", "How is RELIANCE.NS doing?",
                                               "What is RSI?", "Is my portfolio diversified?",
                                               "Load my Angel One holdings", "Load my Zerodha holdings"]
-    assert [t.label for t in app.tabs] == ["🔔 Alerts", "🌍 World", "📈 Chart & signals", "🔎 Scanner", "🏦 Long-term", "🔭 Events",
-                                           "🧪 Paper trading", "📒 Journal", "💬 Ask AI"]
+    assert [t.label for t in app.tabs] == ["🔔 Alerts", "🌍 World", "📈 Chart & signals", "🔎 Scanner", "🖥️ Terminal",
+                                           "🏦 Long-term", "🔭 Events", "🧪 Paper trading", "📒 Journal", "💬 Ask AI"]
     assert any("cannot place orders" in c.value for c in app.caption)
 
 
@@ -220,7 +220,7 @@ def test_longterm_tab_shows_card_and_notes(longterm):
     longterm.text_input(key="lt_raw").set_value("abcbank")
     button(longterm, "Load fundamentals").click().run()
     assert not longterm.exception
-    table = longterm.dataframe[0].value
+    table = next(d.value for d in longterm.dataframe if "Measure" in d.value.columns)
     assert list(table.columns) == ["Measure", "Value", "What it means"]
     values = dict(zip(table["Measure"], table["Value"]))
     assert values["P/E"] == "25" and values["ROE"] == "not available" and values["Debt-to-equity"] == "not available"
@@ -717,3 +717,31 @@ def test_mt5_section_and_chart_source(app, monkeypatch):
     button(app, "Analyze").click().run()
     assert not app.exception
     assert any("Live MT5 prices for GOLD" in c.value for c in app.caption)
+
+
+
+def test_terminal_buy_then_close(app, monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from fin_agent.pipelines import terminal_feed
+    from fin_agent.portfolio.terminal import Quote
+    now = datetime(2026, 10, 13, 13, 30, tzinfo=ZoneInfo("Asia/Kolkata"))
+    monkeypatch.setattr(terminal_feed, "quote", lambda s: Quote(799.975, 800.025, now, "test feed"))
+    monkeypatch.setattr(terminal_feed, "recent_candles", lambda s: None)
+    app.run()
+    assert not app.exception
+    assert any(m.label == "Balance" and m.value == "₹100,000.00" for m in app.metric)
+    button(app, "🔵 BUY by Market").click().run()
+    assert any("Set a stop-loss" in e.value for e in app.error)
+    app.number_input(key="term_lots_SBIN.NS").set_value(10)
+    app.number_input(key="term_sl_SBIN.NS").set_value(790.0)
+    app.number_input(key="term_tp_SBIN.NS").set_value(830.0)
+    app.run()
+    assert any("BUY at 800.02: risk ₹105.02 (0.11% of balance)" in c.value
+               and "Most volume within your risk rule: 95." in c.value for c in app.caption)
+    button(app, "🔵 BUY by Market").click().run()
+    assert any(s.value.startswith("Trade #1 opened: BUY 10 SBIN.NS at 800.02") for s in app.success)
+    assert any("#1" in m.value and "BUY 10 SBIN.NS" in m.value for m in app.markdown)
+    button(app, "✕ Close").click().run()
+    assert not app.exception
+    assert any(m.label == "Win rate" for m in app.metric)

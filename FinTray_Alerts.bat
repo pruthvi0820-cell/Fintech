@@ -14,7 +14,8 @@ echo   FINTRAY PHONE ALERTS. KEEP THIS WINDOW OPEN (minimise it).
 echo   Every 15 minutes in market hours (9:15-15:30 IST, Mon-Fri)
 echo   it checks and prints one line, e.g. "10:15 no new alerts".
 echo   Open paper trades are checked every minute; a close is
-echo   sent to Telegram straight away.
+echo   sent to Telegram straight away, and so are Paper
+echo   Terminal fills, stops and targets (gold: any hour).
 echo   The repeating line is normal: it is the watcher working.
 echo   Closing it stops Telegram alerts.
 echo  ============================================================

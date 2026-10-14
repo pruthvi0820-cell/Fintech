@@ -62,7 +62,8 @@ from fin_agent.pipelines.ask import CACHEABLE_KINDS, answer, cache_key
 from fin_agent.pipelines.fundamentals import (SOURCE_LABELS, analysis_markdown, build_fundamentals_report,
                                               load_statements)
 from fin_agent.pipelines.brief import esc, md_link, safe_model_text
-from fin_agent.pipelines import paper_live
+from fin_agent.pipelines import paper_live, terminal_feed
+from fin_agent.portfolio import terminal as terminal_mod
 import sqlite3
 
 from fin_agent.portfolio.holdings import PortfolioError, parse_holdings_csv, portfolio_snapshot
@@ -109,6 +110,16 @@ def load_freshest_candles(ticker: str, interval: str) -> tuple[pd.DataFrame, str
 def load_mt5_candles(symbol: str, interval: str) -> pd.DataFrame:
     """Live candles from the MT5 program on this computer (XM demo); refreshed at most every 10 s."""
     return mt5.candles(symbol, interval)
+
+
+@st.cache_data(ttl=3, show_spinner=False)
+def load_quote(symbol: str) -> terminal_mod.Quote:
+    return terminal_feed.quote(symbol)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_recent_candles(symbol: str) -> pd.DataFrame | None:
+    return terminal_feed.recent_candles(symbol)
 
 
 PRICE_SOURCES = ("Yahoo (free, ~15 min late)", "Angel One (live, needs today's login)",
@@ -1505,6 +1516,227 @@ def chart_tab() -> None:
                 "Return % (after costs)": round(t.net_return * 100, 2), "Why sold": t.exit_reason,
             } for t in result.trades]), hide_index=True, width="stretch")
     st.caption(SIGNALS_CAVEAT)
+# ---------------------------------------------------------------- 🖥️ Paper Terminal (MT5-style)
+
+TERMINAL_REFRESH_SECONDS = 5
+TERMINAL_KINDS = {"Market": None, "Limit (better price)": "limit", "Stop (breakout)": "stop"}
+
+
+def _money(x: float | None, cur: str) -> str:
+    return "–" if x is None else f"{'-' if x < 0 else ''}{terminal_mod.SIGN.get(cur, '')}{abs(x):,.2f}"
+
+
+def _term_symbols(currency: str) -> list[str]:
+    if currency == "USD":
+        return ["GOLD"]
+    watch = [t for t in alerts_mod.load_watchlist() if t.upper().endswith(".NS")]
+    return watch or ["SBIN.NS", "RELIANCE.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS"]
+
+
+def terminal_panel(term: terminal_mod.Terminal, currency: str, symbols: list[str]) -> None:
+    """Live part: prices, account, open trades and pending orders. Re-runs every few seconds by itself."""
+    r = terminal_feed.refresh(term, symbols, quote_fn=load_quote, candles_fn=load_recent_candles)
+    log = st.session_state.setdefault("term_events", [])
+    for e in r.events:
+        st.toast(e)
+        log.insert(0, f"{datetime.now(ZoneInfo('Asia/Kolkata')):%H:%M:%S} {e}")
+    del log[30:]
+    for msg in r.problems:
+        st.caption(f"⚠️ {msg}")
+    quotes = r.quotes
+    s = term.summary(currency, quotes)
+    k = st.columns(6)
+    k[0].metric("Balance", _money(s["balance"], currency))
+    k[1].metric("Equity", _money(s["equity"], currency))
+    k[2].metric("Floating P/L", _money(s["floating"], currency))
+    k[3].metric("Margin", _money(s["margin"], currency))
+    k[4].metric("Free margin", _money(s["free_margin"], currency))
+    k[5].metric("Margin level", "–" if s["margin_level"] is None else f"{s['margin_level'] * 100:,.0f}%")
+
+    st.markdown("**Market Watch**")
+    st.dataframe(pd.DataFrame([{
+        "Symbol": sym, "Bid": q.bid, "Ask": q.ask, "Spread": round(q.ask - q.bid, 4),
+        "Time (IST)": f"{q.at.astimezone(ZoneInfo('Asia/Kolkata')):%d %b %H:%M:%S}", "Prices": q.source}
+        for sym, q in quotes.items() if terminal_mod.instrument(sym).currency == currency]),
+        hide_index=True, width="stretch")
+
+    open_ = [p for p in term.positions() if p["currency"] == currency]
+    st.markdown(f"**Trade** ({len(open_)} open)")
+    if not open_:
+        st.caption("No open trades.")
+    for p in open_:
+        q = quotes.get(p["symbol"])
+        now_px = None if q is None else (q.bid if p["side"] == terminal_mod.BUY else q.ask)
+        pl = term.floating(p, q)
+        pl_text = "–" if pl is None else f":{'green' if pl >= 0 else 'red'}[{_money(pl, currency)}]"
+        c = st.columns([5, 1])
+        c[0].markdown(
+            f"`#{p['id']}` **{'🔵 BUY' if p['side'] == terminal_mod.BUY else '🔴 SELL'} {p['lots']:g} {p['symbol']}** "
+            f"at {p['entry']:,.2f} · S/L {p['sl']:,.2f} · T/P {p['tp']:,.2f} · now "
+            f"{'–' if now_px is None else f'{now_px:,.2f}'} · {pl_text}")
+        if c[1].button("✕ Close", key=f"term_close_{p['id']}", disabled=q is None):
+            try:
+                pnl = term.close(p["id"], load_quote(p["symbol"]))
+                log.insert(0, f"#{p['id']} closed by you: {_money(pnl, currency)}")
+            except terminal_mod.TerminalError as exc:
+                st.error(str(exc))
+            st.rerun()
+
+    pend = [o for o in term.orders() if terminal_mod.instrument(o["symbol"]).currency == currency]
+    if pend:
+        st.markdown(f"**Pending orders** ({len(pend)})")
+    for o in pend:
+        c = st.columns([5, 1])
+        c[0].markdown(f"`#{o['id']}` {'Buy' if o['side'] == terminal_mod.BUY else 'Sell'} {o['kind'].title()} "
+                      f"{o['lots']:g} {o['symbol']} at {o['price']:,.2f} · S/L {o['sl']:,.2f} · T/P {o['tp']:,.2f}")
+        if c[1].button("✕ Cancel", key=f"term_cancel_{o['id']}"):
+            term.cancel(o["id"])
+            st.rerun()
+    if log:
+        with st.expander("Journal (latest first)"):
+            st.text("\n".join(log))
+
+
+def order_ticket(term: terminal_mod.Terminal, currency: str, symbols: list[str]) -> None:
+    st.markdown("**New order**")
+    if msg := st.session_state.pop("term_msg", None):
+        st.success(msg)
+    c = st.columns([2, 2, 1])
+    symbol = c[0].selectbox("Symbol", symbols, key="term_symbol")
+    kind_label = c[1].selectbox("Type", list(TERMINAL_KINDS), key="term_kind")
+    inst = terminal_mod.instrument(symbol)
+    lots = c[2].number_input("Volume (lots)" if inst.contract_size != 1 else "Volume (shares)", min_value=inst.min_lot,
+                             step=inst.lot_step, value=inst.min_lot, key=f"term_lots_{inst.symbol}",
+                             format="%.2f" if inst.lot_step < 1 else "%.0f")
+    try:
+        q = load_quote(symbol)
+    except terminal_mod.TerminalError as exc:
+        st.warning(str(exc))
+        return
+    kind = TERMINAL_KINDS[kind_label]
+    c2 = st.columns(3)
+    price = c2[0].number_input("Price (pending orders)", min_value=0.0, value=float(round(q.mid, 2)), step=0.05,
+                               key=f"term_price_{inst.symbol}", disabled=kind is None)
+    sl = c2[1].number_input("Stop-loss", min_value=0.0, value=0.0, step=0.05, key=f"term_sl_{inst.symbol}")
+    tp = c2[2].number_input("Take-profit", min_value=0.0, value=0.0, step=0.05, key=f"term_tp_{inst.symbol}")
+    units = lots * inst.contract_size
+    bal = term.balance(currency)
+    lines = []
+    for side, entry in ((terminal_mod.BUY, q.ask if kind is None else price),
+                        (terminal_mod.SELL, q.bid if kind is None else price)):
+        name = "BUY" if side == terminal_mod.BUY else "SELL"
+        ok = sl < entry < tp if side == terminal_mod.BUY else tp < entry < sl
+        if sl and tp and ok:
+            per_unit = abs(entry - sl) + inst.commission * (entry + sl)          # what one unit loses at the stop
+            risk = per_unit * units
+            limit = risk_engine.load_rules().max_risk_pct * bal
+            step_lots = round(limit / (per_unit * inst.contract_size) // inst.lot_step * inst.lot_step, 8)
+            lines.append(f"{name} at {entry:,.2f}: risk {_money(risk, currency)} ({risk / bal:.2%} of balance), "
+                         f"reward-to-risk {abs(tp - entry) / abs(entry - sl):.2f}, margin "
+                         f"{_money(units * entry / inst.leverage, currency)}. Most volume within your risk rule: "
+                         f"{step_lots:g}.")
+    st.caption(" · ".join(lines) if lines else
+               f"Bid {q.bid:,.2f} / ask {q.ask:,.2f} ({q.source}). Set a stop-loss and take-profit to see the risk.")
+    b = st.columns(2)
+    sell = b[0].button(f"🔴 SELL {'by Market' if kind is None else kind_label.split()[0]}", key="term_sell",
+                       width="stretch")
+    buy = b[1].button(f"🔵 BUY {'by Market' if kind is None else kind_label.split()[0]}", key="term_buy",
+                      type="primary", width="stretch")
+    if not (buy or sell):
+        return
+    side = terminal_mod.BUY if buy else terminal_mod.SELL
+    try:
+        fresh = terminal_feed.quote(symbol)
+        if kind is None:
+            pid = term.market_order(symbol, side, lots, sl, tp, fresh)
+            msg = (f"Trade #{pid} opened: {'BUY' if buy else 'SELL'} {lots:g} {inst.symbol} at "
+                   f"{fresh.ask if buy else fresh.bid:,.2f} ({fresh.source}).")
+        else:
+            oid = term.pending_order(symbol, side, kind, lots, price, sl, tp, fresh)
+            msg = (f"Order #{oid} placed: {'Buy' if buy else 'Sell'} {kind.title()} {lots:g} {inst.symbol} at "
+                   f"{price:,.2f}.")
+    except terminal_mod.TerminalError as exc:
+        st.error(str(exc))
+        return
+    st.session_state["term_msg"] = msg
+    st.rerun()                                   # redraw so the new trade shows in the list above
+
+
+def terminal_manage(term: terminal_mod.Terminal, currency: str) -> None:
+    open_ = [p for p in term.positions() if p["currency"] == currency]
+    with st.expander("✏️ Modify a trade (move S/L, T/P) or close part of it", expanded=False):
+        if not open_:
+            st.caption("No open trades.")
+            return
+        labels = {f"#{p['id']} {'BUY' if p['side'] == 1 else 'SELL'} {p['lots']:g} {p['symbol']}": p for p in open_}
+        p = labels[st.selectbox("Trade", list(labels), key="term_mod_pick")]
+        c = st.columns(3)
+        new_sl = c[0].number_input("New stop-loss", min_value=0.0, value=float(p["sl"]), step=0.05, key="term_mod_sl")
+        new_tp = c[1].number_input("New take-profit", min_value=0.0, value=float(p["tp"]), step=0.05,
+                                   key="term_mod_tp")
+        part = c[2].number_input("Close volume", min_value=0.0, value=float(p["lots"]), step=0.01, key="term_part")
+        b = st.columns(2)
+        try:
+            if b[0].button("Modify", key="term_modify"):
+                term.modify(p["id"], new_sl, new_tp, terminal_feed.quote(p["symbol"]))
+                st.success(f"#{p['id']}: S/L {new_sl:,.2f}, T/P {new_tp:,.2f}.")
+            if b[1].button("Close this volume", key="term_close_part"):
+                pnl = term.close(p["id"], terminal_feed.quote(p["symbol"]), lots=part)
+                st.success(f"#{p['id']}: closed {part:g} for {_money(pnl, currency)}.")
+        except terminal_mod.TerminalError as exc:
+            st.error(str(exc))
+
+
+def terminal_history(term: terminal_mod.Terminal, currency: str) -> None:
+    deals = term.history(currency)
+    s = term.stats(currency)
+    st.markdown(f"**History** ({len(deals)} closed)")
+    if s["trades"]:
+        k = st.columns(5)
+        k[0].metric("Win rate", f"{s['win_rate']:.0%}")
+        k[1].metric("Expectancy per trade", _money(s["expectancy"], currency),
+                    None if s["expectancy_r"] is None else f"{s['expectancy_r']:+.2f}R", delta_color="off")
+        k[2].metric("Total", _money(s["total"], currency))
+        k[3].metric("Max drawdown", _money(s["max_drawdown"], currency))
+        k[4].metric("Avg win / loss", f"{_money(s['avg_win'], currency)} / {_money(s['avg_loss'], currency)}")
+        if s["too_few"]:
+            st.caption(f"Only {s['trades']} closed trade(s): 20+ are needed before these numbers mean much.")
+        st.dataframe(pd.DataFrame([{
+            "Closed (IST)": f"{pd.Timestamp(d['closed_at']).tz_convert('Asia/Kolkata'):%d %b %H:%M}",
+            "#": d["position_id"], "Symbol": d["symbol"], "Type": "BUY" if d["side"] == 1 else "SELL",
+            "Volume": d["lots"], "Open": d["entry"], "Close": d["exit"], "Reason": d["reason"],
+            "Commission": d["commission"], "P/L": d["pnl"], "R": d["r"]} for d in reversed(deals)]),
+            hide_index=True, width="stretch")
+    with st.expander("Reset this practice account"):
+        start = st.number_input("Starting balance", min_value=1.0, value=terminal_mod.START_BALANCE[currency],
+                                step=1000.0, key=f"term_reset_amt_{currency}")
+        if st.checkbox("I understand this deletes every trade in this account", key=f"term_reset_ok_{currency}") \
+                and st.button("Reset account", key=f"term_reset_{currency}"):
+            term.reset(currency, start)
+            st.success("Account reset.")
+
+
+def terminal_tab() -> None:
+    st.caption("Practice like MetaTrader 5 with virtual money: Buy or Sell (short) at live prices, stop-loss and "
+               "take-profit, pending orders, partial closes. Fills are never kinder than a broker's (ask/bid, gaps "
+               "at the open, stop first), NSE stocks are squared off at 15:20, and FinTray's risk rules apply to "
+               "every trade. Live prices: NSE through Angel One (log in today), gold through MT5 (XM demo open on "
+               "this computer); otherwise delayed Yahoo prices, labelled. Nothing here can place a real order.")
+    try:
+        term = terminal_mod.Terminal()
+    except (OSError, sqlite3.Error) as exc:
+        st.error(f"Can't open the terminal file: {exc}")
+        return
+    c = st.columns([3, 2])
+    account = c[0].radio("Account", ["₹ NSE stocks", "$ Gold (XM-style)"], horizontal=True, key="term_account")
+    currency = "INR" if account.startswith("₹") else "USD"
+    live = c[1].toggle(f"🔴 Live (refresh every {TERMINAL_REFRESH_SECONDS} s)", value=True, key="term_live")
+    symbols = _term_symbols(currency)
+    st.fragment(terminal_panel, run_every=TERMINAL_REFRESH_SECONDS if live else None)(term, currency, symbols)
+    order_ticket(term, currency, symbols)
+    terminal_manage(term, currency)
+    terminal_history(term, currency)
+
 
 APP_NAME = "FinTray"
 st.set_page_config(page_title=APP_NAME, page_icon="📈", layout="wide")
@@ -1828,9 +2060,9 @@ def statements_company(file_bytes: bytes) -> str:
 
 # ---------------------------------------------------------------- page
 st.title(APP_NAME)
-tab_alerts, tab_world, tab_chart, tab_scan, tab_long, tab_events, tab_paper, tab_journal, tab_chat = st.tabs(
-    ["🔔 Alerts", "🌍 World", "📈 Chart & signals", "🔎 Scanner", "🏦 Long-term", "🔭 Events", "🧪 Paper trading",
-     "📒 Journal", "💬 Ask AI"])
+(tab_alerts, tab_world, tab_chart, tab_scan, tab_terminal, tab_long, tab_events, tab_paper, tab_journal,
+ tab_chat) = st.tabs(["🔔 Alerts", "🌍 World", "📈 Chart & signals", "🔎 Scanner", "🖥️ Terminal", "🏦 Long-term",
+                      "🔭 Events", "🧪 Paper trading", "📒 Journal", "💬 Ask AI"])
 
 with tab_alerts:
     alerts_tab(portfolio)
@@ -1854,6 +2086,9 @@ with tab_long:
 
 with tab_events:
     events_tab()
+
+with tab_terminal:
+    terminal_tab()
 
 with tab_paper:
     paper_tab()

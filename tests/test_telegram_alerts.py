@@ -134,3 +134,15 @@ def test_paper_closes_are_sent_at_once(runner):
     assert n == 1 and "Paper trade closed · 13 Oct 10:31 IST" in sent[0] and "#3 SBIN.NS: target" in sent[0]
     assert runner.paper_once(TOKEN, "42", now=now, send=lambda *a: sent.append("x"), check=lambda b: PaperCheck()) == 0
     assert len(sent) == 1
+
+
+def test_terminal_events_are_sent(runner):
+    from fin_agent.pipelines.terminal_feed import Refresh
+    sent = []
+    now = datetime(2026, 10, 13, 22, 5, tzinfo=IST)                 # after NSE hours: gold still trades
+    ev = Refresh(events=["#2 BUY 0.01 GOLD: take-profit at 4,230.00 (+$34.50)."])
+    assert runner.terminal_once(TOKEN, "42", now=now, send=lambda t, c, text: sent.append(text),
+                                refresh=lambda term, syms: ev) == 1
+    assert "Paper Terminal · 13 Oct 22:05 IST" in sent[0] and "take-profit at 4,230.00" in sent[0]
+    assert runner.terminal_once(TOKEN, "42", now=now, send=lambda *a: sent.append("x"),
+                                refresh=lambda term, syms: Refresh()) == 0 and len(sent) == 1

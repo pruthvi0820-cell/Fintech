@@ -91,6 +91,7 @@ def test_portfolio_question_without_upload_asks_for_csv(app):
 
 def test_chart_tab_shows_signals_chart_and_backtest(app):
     app.run()
+    app.radio(key="chart_style").set_value("Classic")
     button(app, "Analyze").click().run()
     assert not app.exception
     labels = [m.label for m in app.metric]
@@ -131,6 +132,7 @@ def test_missing_chart_library_shows_install_hint_not_a_crash(app, monkeypatch):
     monkeypatch.setitem(sys.modules, "plotly", None)          # makes "import plotly..." raise ImportError
     monkeypatch.setitem(sys.modules, "plotly.subplots", None)
     app.run()
+    app.radio(key="chart_style").set_value("Classic")
     button(app, "Analyze").click().run()
     assert not app.exception
     assert any('pip install -e ".[app]"' in e.value for e in app.error)
@@ -147,7 +149,7 @@ def test_log_decisions_then_close_a_trade_in_the_journal(app, tmp_path):
     app.text_area[0].set_value("Signals mixed, waiting")
     button(app, "Save to journal").click().run()
     assert any("journal entry #1" in m.value for m in app.success)
-    app.radio[0].set_value("I bought")
+    next(r for r in app.radio if r.label == "Decision").set_value("I bought")
     app.text_area[0].set_value("4 of 5 buy conditions, backtest beat holding")
     button(app, "Save to journal").click().run()
     assert any("journal entry #2" in m.value for m in app.success)
@@ -655,6 +657,7 @@ def test_chart_indicator_picker_and_auto_refresh(app):
     app.selectbox(key="chart_interval").set_value("15m").run()
     app.multiselect(key="chart_indicators").set_value(["VWAP", "Supertrend (10, 3)", "MACD (12, 26, 9)"])
     app.toggle(key="chart_auto").set_value(True)
+    app.radio(key="chart_style").set_value("Classic")
     button(app, "Analyze").click().run()
     assert not app.exception
     spec = app.get("plotly_chart")[0].proto.spec
@@ -745,3 +748,36 @@ def test_terminal_buy_then_close(app, monkeypatch):
     button(app, "✕ Close").click().run()
     assert not app.exception
     assert any(m.label == "Win rate" for m in app.metric)
+
+
+def test_pro_chart_is_the_default_with_fintray_lines(app):
+    import json as _json
+    app.run()
+    app.selectbox(key="chart_interval").set_value("15m").run()
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    assert app.radio(key="chart_style").value == "Pro (TradingView-style)" and not app.get("plotly_chart")
+    html = next(e for e in app.get("iframe")).proto.srcdoc
+    cfg = _json.loads(html.split("window.FINTRAY_CHART = ")[1].split(";\n")[0])
+    assert cfg["period"] == {"type": "minute", "span": 15} and len(cfg["bars"]) > 100
+    assert {"Stop", "Entry", "Target"} <= {line["label"] for line in cfg["lines"]} and cfg["feedUrl"] is None
+    assert "app/static/klinecharts/klinecharts.min.js" in html
+    assert any("Trades" == m.label for m in app.metric)                     # the backtest still shows
+
+
+def test_pro_chart_live_feed_file(app):
+    import json as _json
+    live = Path(APP).parent / "static" / "live" / "RELIANCE.NS_15m.json"
+    live.unlink(missing_ok=True)
+    app.run()
+    app.selectbox(key="chart_interval").set_value("15m").run()
+    app.toggle(key="chart_auto").set_value(True)
+    button(app, "Analyze").click().run()
+    assert not app.exception
+    html = next(e for e in app.get("iframe")).proto.srcdoc
+    assert '"feedUrl": "app/static/live/RELIANCE.NS_15m.json"' in html
+    try:
+        data = _json.loads(live.read_text())
+        assert data["source"].startswith("Yahoo") and len(data["bars"]) == 300
+    finally:
+        live.unlink(missing_ok=True)

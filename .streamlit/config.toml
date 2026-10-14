@@ -4,6 +4,8 @@
 # Only this computer can open the page. Without this, anyone on the same Wi-Fi could open it
 # (and see an uploaded portfolio). Remove only if you understand that risk.
 address = "localhost"
+# Serves scripts/static/ at app/static/: the Pro chart's library, its code and its live price files.
+enableStaticServing = true
 
 [browser]
 # Don't send anonymous usage statistics to Streamlit.

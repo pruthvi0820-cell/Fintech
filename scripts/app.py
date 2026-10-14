@@ -13,9 +13,11 @@ cannot place orders: nothing it imports can talk to a broker.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from fin_agent.analysis.backtest import DEFAULT_COST_PER_SIDE, backtest
 from fin_agent.analysis.risk import DEFAULT_RISK_PCT, PlanError, plan_trade
@@ -63,6 +65,7 @@ from fin_agent.pipelines.fundamentals import (SOURCE_LABELS, analysis_markdown, 
                                               load_statements)
 from fin_agent.pipelines.brief import esc, md_link, safe_model_text
 from fin_agent.pipelines import paper_live, terminal_feed
+from fin_agent.web import tvchart
 from fin_agent.portfolio import terminal as terminal_mod
 import sqlite3
 
@@ -120,6 +123,61 @@ def load_quote(symbol: str) -> terminal_mod.Quote:
 @st.cache_data(ttl=15, show_spinner=False)
 def load_recent_candles(symbol: str) -> pd.DataFrame | None:
     return terminal_feed.recent_candles(symbol)
+
+
+STATIC_LIVE = Path(__file__).resolve().parent / "static" / "live"     # served at app/static/live/
+CHART_STYLES = ("Pro (TradingView-style)", "Classic")
+
+
+@st.cache_data(ttl=4, show_spinner=False)
+def load_feed_candles(ticker: str, interval: str, source: str, mt5_symbol: str) -> tuple[pd.DataFrame, str]:
+    """The last few days of candles for the Pro chart's live feed, from the chosen source."""
+    if source == PRICE_SOURCES[2]:
+        return mt5.candles(mt5_symbol, interval, count=300), "live (MT5 / XM demo)"
+    if source == PRICE_SOURCES[1] and ticker.endswith(".NS"):
+        return angel_market.candles(ticker, interval, days=5), "live (Angel One)"
+    return load_candles_fresh(ticker, interval), "Yahoo (often ~15 min late)"
+
+
+def pro_chart_feed(ticker: str, interval: str, source: str, mt5_symbol: str, key: str) -> None:
+    """Runs every few seconds: writes the latest candles where the Pro chart picks them up."""
+    try:
+        bars_, label = load_feed_candles(ticker, interval, source, mt5_symbol)
+    except (angelone.AngelError, mt5.MT5Error, market_data.MarketDataError):
+        try:
+            bars_, label = load_candles_fresh(ticker, interval), "Yahoo (often ~15 min late)"
+        except market_data.MarketDataError:
+            return
+    try:
+        tvchart.write_feed(STATIC_LIVE, key, bars_, label)
+    except OSError:
+        pass                                          # the chart keeps its candles; the next tick tries again
+
+
+def pro_chart_lines(ticker: str, plan, levels: list, marks: list) -> list[dict]:
+    """FinTray's own lines on the Pro chart: trade plan, support/resistance, your marks, open terminal trades.
+    Labels are short: they sit on the price axis (S/R ×n = support/resistance touched n times)."""
+    lines = []
+    if plan is not None:
+        lines += [{"price": plan.target, "color": "#1a9850", "label": "Target", "dash": True},
+                  {"price": plan.entry, "color": "#9aa5b1", "label": "Entry", "dash": True},
+                  {"price": plan.stop, "color": "#d73027", "label": "Stop", "dash": True}]
+    for lv in levels or []:
+        lines.append({"price": lv.price, "color": "#1a9850" if lv.kind == "support" else "#d73027",
+                      "label": f"{'S' if lv.kind == 'support' else 'R'} ×{lv.touches}", "dash": False})
+    for m in marks or []:
+        lines.append({"price": m.price, "color": "#c51b7d", "label": f"✏️ {m.label[:10]}", "dash": True})
+    try:
+        sym = terminal_mod.instrument(ticker).symbol
+        for p in terminal_mod.Terminal().positions(sym):
+            side = "BUY" if p["side"] == terminal_mod.BUY else "SELL"
+            lines += [{"price": p["entry"], "color": "#2962ff", "label": f"#{p['id']} {side}",
+                       "dash": False},
+                      {"price": p["sl"], "color": "#d73027", "label": f"#{p['id']} SL", "dash": True},
+                      {"price": p["tp"], "color": "#1a9850", "label": f"#{p['id']} TP", "dash": True}]
+    except (terminal_mod.TerminalError, OSError, sqlite3.Error):
+        pass
+    return lines
 
 
 PRICE_SOURCES = ("Yahoo (free, ~15 min late)", "Angel One (live, needs today's login)",
@@ -1376,7 +1434,11 @@ def chart_tab() -> None:
                      help="Re-fetches the candles and redraws about once a minute. Drawings made with the chart's "
                           "pen disappear on each refresh; save levels as marks below to keep them.")
     auto = auto and interval != "1d"
-    if auto:
+    style = st.radio("Chart", CHART_STYLES, horizontal=True, key="chart_style",
+                     help="Pro: TradingView-style drawing tools (saved per symbol in this browser), 27 indicators, "
+                          "live updates every 5 s without reloading. Classic: the original chart.")
+    pro = style == CHART_STYLES[0]
+    if auto and not pro:
         auto_refresh_tick()
     with st.expander("Backtest settings"):
         b1, b2, b3, b4 = st.columns(4)
@@ -1473,6 +1535,26 @@ def chart_tab() -> None:
         log_decision_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
         paper_trade_section(hist.ticker, sig, plan, float(bars["Close"].iloc[-1]), cost / 100)
     marks = marks_mod.load_marks().get(hist.ticker, [])
+    if pro:
+        key = tvchart.feed_key(hist.ticker, interval)
+        if auto:
+            st.fragment(pro_chart_feed, run_every=5)(hist.ticker, interval, source, mt5_symbol, key)
+        notes = [{"timestamp": int(pd.Timestamp(chart_bars.index[pt.known_at]).timestamp() * 1000), "price": pt.entry,
+                  "text": f"📐 {pt.kind}", "color": "#1a9850" if pt.direction > 0 else "#d73027"}
+                 for pt in recent_patterns]
+        components.html(tvchart.build_html(
+            symbol=hist.ticker if source != PRICE_SOURCES[2] else mt5_symbol, interval=interval, bars=chart_bars,
+            lines=pro_chart_lines(hist.ticker, plan, levels, marks), notes=notes,
+            feed_key_=key if auto else None, source="live" if live_ok else "Yahoo (often ~15 min late)"), height=620)
+        st.caption("Draw with the tools on the left (trend line, ray, horizontal/vertical lines, channels, Fibonacci, "
+                   "zone, note; 🧲 snaps to prices; select a drawing and press Delete to remove it). Drawings and "
+                   "indicators (ƒx) are saved in this browser for each symbol. FinTray's lines are locked: plan, "
+                   "support/resistance, your marks and open Terminal trades."
+                   + (" 🔴 Live: updates every 5 s." if auto else " Turn on Auto-refresh for live updates."))
+        marks_section(hist.ticker, float(bars["Close"].iloc[-1]), marks)
+        patterns_section(chart_bars, interval, recent_patterns)
+        chart_tab_backtest(result, entry, exit_, hold, cost)
+        return
     try:
         intraday = interval != "1d"
         shown = chart_bars.tz_convert("Asia/Kolkata") if intraday else chart_bars
@@ -1493,7 +1575,10 @@ def chart_tab() -> None:
                       + ("" if live_ok else " Yahoo prices are often about 15 minutes late.") if auto else ""))
     marks_section(hist.ticker, float(bars["Close"].iloc[-1]), marks)
     patterns_section(chart_bars, interval, recent_patterns)
+    chart_tab_backtest(result, entry, exit_, hold, cost)
 
+
+def chart_tab_backtest(result, entry: int, exit_: int, hold: int, cost: float) -> None:
     st.subheader("How these rules did on this stock (backtest)")
     st.caption(f"{result.start} to {result.end}. Buy at the next day's open when at least {entry} buy "
                f"conditions are met; sell at the next open when {exit_} or fewer remain, or after {hold} "
@@ -1516,6 +1601,8 @@ def chart_tab() -> None:
                 "Return % (after costs)": round(t.net_return * 100, 2), "Why sold": t.exit_reason,
             } for t in result.trades]), hide_index=True, width="stretch")
     st.caption(SIGNALS_CAVEAT)
+
+
 # ---------------------------------------------------------------- 🖥️ Paper Terminal (MT5-style)
 
 TERMINAL_REFRESH_SECONDS = 5

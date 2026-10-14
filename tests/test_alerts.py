@@ -83,3 +83,15 @@ def test_alert_texts_are_facts_not_instructions():
     text = " ".join(a.text.lower() for a in signal_alerts({"T.NS": sig(5, 5)}, {"T.NS"}) + tax_alerts(rows))
     for word in ("should", "must", "buy now", "sell now", "recommend"):
         assert word not in text
+
+
+def test_watchlist_splits_several_symbols_and_heals_old_entries(tmp_path):
+    import json as _json
+    from fin_agent.analysis.alerts import load_watchlist, save_watchlist, split_symbols
+    assert split_symbols("TCS, hdfcbank  BDL.NS;USDINR=X ^NSEI") == ["TCS.NS", "HDFCBANK.NS", "BDL.NS", "USDINR=X",
+                                                                      "^NSEI"]
+    assert split_symbols("  ") == []
+    path = tmp_path / "watchlist.json"
+    path.write_text(_json.dumps(["TCS, HDFCBANK, BDL.NS", "INFY.NS"]))          # saved by an older version
+    assert load_watchlist(path) == ["BDL.NS", "HDFCBANK.NS", "INFY.NS", "TCS.NS"]
+    assert save_watchlist(["RELIANCE, SBIN"], path) == ["RELIANCE.NS", "SBIN.NS"]

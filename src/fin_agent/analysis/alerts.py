@@ -58,16 +58,31 @@ def watchlist_path() -> Path:
     return folder / "watchlist.json"
 
 
+def split_symbols(text: str, default_suffix: str = ".NS") -> list[str]:
+    """'TCS, hdfcbank  BDL.NS' -> ['TCS.NS', 'HDFCBANK.NS', 'BDL.NS']: split on commas, semicolons or spaces;
+    a bare symbol gets `default_suffix`; symbols with a suffix, '=' (currency pairs) or '^' (indices) are kept."""
+    out = []
+    for part in re.split(r"[,;\s]+", str(text or "").strip().upper()):
+        if not part:
+            continue
+        out.append(part if ("." in part or "=" in part or part.startswith("^")) else part + default_suffix)
+    return out
+
+
 def load_watchlist(path: Path | None = None) -> list[str]:
+    """The saved watchlist. An entry saved as one string by an older version ("TCS, HDFCBANK, BDL.NS")
+    is split back into separate symbols."""
     try:
         raw = json.loads((path or watchlist_path()).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return []
-    return sorted({str(t).strip().upper() for t in raw if str(t).strip()}) if isinstance(raw, list) else []
+    if not isinstance(raw, list):
+        return []
+    return sorted({sym for t in raw for sym in split_symbols(t)})
 
 
 def save_watchlist(tickers: list[str], path: Path | None = None) -> list[str]:
-    clean = sorted({t.strip().upper() for t in tickers if t and t.strip()})
+    clean = sorted({sym for t in tickers if t for sym in split_symbols(t)})
     path = path or watchlist_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(clean, indent=2), encoding="utf-8")

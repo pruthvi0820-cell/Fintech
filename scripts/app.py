@@ -597,10 +597,11 @@ def alerts_tab(portfolio) -> None:
     watch = alerts_mod.load_watchlist()
     with st.expander(f"⭐ Watchlist ({len(watch)})", expanded=not watch):
         c1, c2 = st.columns([3, 1])
-        new = c1.text_input("Add a stock", placeholder="e.g. TCS.NS or a bare symbol like TCS", key="watch_add")
+        new = c1.text_input("Add stocks", placeholder="e.g. TCS, HDFCBANK, BDL (commas or spaces; .NS is added)",
+                            key="watch_add")
         c2.write("")
         if c2.button("Add to watchlist") and new.strip():
-            watch = alerts_mod.save_watchlist(watch + [normalise_ticker(new)])
+            watch = alerts_mod.save_watchlist(watch + alerts_mod.split_symbols(new))
         if watch:
             remove = st.multiselect("Remove", watch, key="watch_remove")
             if remove and st.button("Remove selected"):

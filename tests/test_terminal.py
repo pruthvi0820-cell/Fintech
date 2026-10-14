@@ -168,3 +168,10 @@ def test_reset_one_currency(t):
     assert t.balance("USD") == 5000 and [p["symbol"] for p in t.positions()] == ["SBIN.NS"]
     with pytest.raises(TerminalError):
         t.reset("USD", 0)
+
+
+def test_malformed_nse_symbols_are_refused():
+    for bad in ("TCS, HDFCBANK, BDL.NS", ".NS", "TCS .NS"):
+        with pytest.raises(TerminalError, match="NSE stocks"):
+            tm.instrument(bad)
+    assert tm.instrument("M&M.NS").symbol == "M&M.NS" and tm.instrument("BAJAJ-AUTO.NS").currency == "INR"

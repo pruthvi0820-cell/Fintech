@@ -20,6 +20,7 @@ Virtual money only: nothing here can place an order with a broker.
 from __future__ import annotations
 
 import math
+import re
 import os
 import sqlite3
 from contextlib import closing
@@ -70,7 +71,7 @@ def instrument(symbol: str) -> Instrument:
     s = (symbol or "").strip().upper()
     if s in GOLD_NAMES:
         return Instrument("GOLD", "USD", 100.0, 0.01, 0.01, 0.5, 0.0, 100.0, "24x5")
-    if s.endswith(".NS") and len(s) > 3:
+    if re.fullmatch(r"[A-Z0-9&_-]+\.NS", s):
         return Instrument(s, "INR", 1.0, 1.0, 1.0, 0.05, 0.0003, 5.0, "nse")
     raise TerminalError(f"{symbol}: the Paper Terminal trades NSE stocks (e.g. SBIN.NS) and gold (GOLD).")
 

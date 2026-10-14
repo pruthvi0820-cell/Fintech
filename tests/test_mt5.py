@@ -14,7 +14,8 @@ NOW = datetime(2026, 10, 13, 8, 0, tzinfo=timezone.utc)         # 13:30 IST; XM 
 SERVER = 3 * 3600
 Account = namedtuple("Account", "login server name balance equity profit currency leverage trade_mode")
 Tick = namedtuple("Tick", "time bid ask")
-Info = namedtuple("Info", "name trade_contract_size")
+Info = namedtuple("Info", "name trade_contract_size currency_base currency_profit")
+Sym = namedtuple("Sym", "name")
 Position = namedtuple("Position", "ticket symbol type volume price_open sl tp price_current profit time")
 Deal = namedtuple("Deal", "ticket position_id symbol type entry volume price profit swap commission fee time")
 Order = namedtuple("Order", "ticket position_id sl time_setup")
@@ -50,11 +51,16 @@ class FakeMT5:
             return None
         return Account(123, "XMGlobal-MT5 Demo", "Test", 10000.0, 9990.0, -10.0, "USD", 1000, self.trade_mode)
 
+    symbols = {"GOLD": Info("GOLD", 100.0, "XAU", "USD")}               # XM-style; MetaQuotes: XAUUSD
+
     def symbol_info(self, sym):
-        return Info(sym, 100.0) if sym == "GOLD" else None
+        return self.symbols.get(sym)
 
     def symbol_select(self, sym, on):
-        return sym == "GOLD"
+        return sym in self.symbols
+
+    def symbols_get(self, group):
+        return tuple(Sym(n) for n in self.symbols if "XAU" in n)
 
     def symbol_info_tick(self, sym):
         return Tick(int(NOW.timestamp()) + SERVER - 20, 4190.0, 4190.5)
@@ -113,8 +119,8 @@ def test_candles_in_ist():
     assert [t.strftime("%H:%M") for t in df.index] == ["13:00", "13:15", "13:30"]     # 10:30 server = 07:30 UTC
     assert str(df.index.tz) == "Asia/Kolkata" and df["Close"].iloc[-1] == 4190.5
     assert lib.calls[-1] == ("rates", "GOLD", 15, 1500)
-    with pytest.raises(mt5.MT5Error, match="no symbol XAUUSD"):
-        mt5.candles("XAUUSD", "15m", lib=lib)
+    with pytest.raises(mt5.MT5Error, match="no symbol EURUSD"):
+        mt5.candles("EURUSD", "15m", lib=lib)
     with pytest.raises(mt5.MT5Error, match="interval"):
         mt5.candles("GOLD", "2m", lib=lib)
 
@@ -183,3 +189,21 @@ def test_authorization_failed_explains_and_path_setting(monkeypatch, tmp_path):
     ok = FakeMT5()
     mt5.connect(ok)
     assert ok.calls[0] == ("initialize", str(exe))
+
+
+
+def test_gold_is_found_by_what_it_is_not_its_name(monkeypatch):
+    lib = FakeMT5()
+    lib.symbols = {"GOLD": Info("GOLD", 1.0, "GOLD", "USD"),                 # MetaQuotes-Demo: "GOLD" is not spot gold
+                   "XAUUSD": Info("XAUUSD", 100.0, "XAU", "USD")}
+    assert mt5.resolve_symbol("GOLD", lib) == "XAUUSD" and mt5.resolve_symbol("gc=f", lib) == "XAUUSD"
+    assert mt5.resolve_symbol("EURUSD", lib) == "EURUSD"
+    assert lib.calls[-1:] != [("rates", "GOLD", 15, 1500)]
+    mt5.candles("GOLD", "15m", lib=lib)
+    assert lib.calls[-1] == ("rates", "XAUUSD", 15, 1500)
+    monkeypatch.setenv("FIN_AGENT_MT5_GOLD_SYMBOL", "XAUUSD.m")
+    assert mt5.gold_symbol(lib) == "XAUUSD.m"
+    monkeypatch.delenv("FIN_AGENT_MT5_GOLD_SYMBOL")
+    lib.symbols = {"GOLD": Info("GOLD", 1.0, "GOLD", "USD")}
+    with pytest.raises(mt5.MT5Error, match="FIN_AGENT_MT5_GOLD_SYMBOL"):
+        mt5.gold_symbol(lib)

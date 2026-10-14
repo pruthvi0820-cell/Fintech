@@ -109,14 +109,44 @@ def _to_ist(seconds, offset_hours: float) -> pd.DatetimeIndex:
     return pd.DatetimeIndex(t).tz_convert(IST)
 
 
+GOLD_ALIASES = {"GOLD", "XAUUSD", "XAU/USD", "GC=F"}
+
+
+def gold_symbol(lib) -> str:
+    """This broker's name for spot gold in US dollars. Brokers differ (XM: GOLD; MetaQuotes-Demo: XAUUSD,
+    where "GOLD" is something else), so it is found by what the symbol IS: base currency XAU, priced in
+    USD. FIN_AGENT_MT5_GOLD_SYMBOL overrides it."""
+    env = os.getenv("FIN_AGENT_MT5_GOLD_SYMBOL", "").strip()
+    if env:
+        return env
+    names = ["GOLD", "XAUUSD"]
+    try:
+        names += [str(getattr(x, "name", "")) for x in (lib.symbols_get("*XAU*") or ())]
+    except (AttributeError, TypeError):
+        pass
+    for name in dict.fromkeys(n for n in names if n):
+        info = lib.symbol_info(name)
+        if info is not None and str(getattr(info, "currency_base", "")).upper() == "XAU" \
+                and str(getattr(info, "currency_profit", "USD")).upper() == "USD":
+            return name
+    raise MT5Error("Couldn't find gold in US dollars (XAU/USD) in this MT5. Open View > Market Watch, find gold's "
+                   "exact name, and put it in .env as FIN_AGENT_MT5_GOLD_SYMBOL=<name>.")
+
+
+def resolve_symbol(symbol: str, lib) -> str:
+    """'GOLD' (or XAUUSD, GC=F) means spot gold wherever you are; any other name is used as typed."""
+    s = (symbol or "").strip()
+    return gold_symbol(lib) if s.upper() in GOLD_ALIASES else s
+
+
 def candles(symbol: str, interval: str, count: int = 1500, lib=None) -> pd.DataFrame:
     """Live OHLCV candles from MT5 (volume = tick volume), IST, oldest first, forming candle included."""
     if interval not in TIMEFRAMES:
         raise MT5Error(f"MT5 candles: interval must be one of {tuple(TIMEFRAMES)}.")
     lib = connect(lib)
-    sym = symbol.strip().upper()
+    sym = resolve_symbol(symbol, lib)
     if lib.symbol_info(sym) is None or not lib.symbol_select(sym, True):
-        raise MT5Error(f"MT5 has no symbol {sym}. In MT5 open View > Market Watch to see the exact name (XM: GOLD).")
+        raise MT5Error(f"MT5 has no symbol {sym}. In MT5 open View > Market Watch to see the exact name.")
     rates = lib.copy_rates_from_pos(sym, getattr(lib, TIMEFRAMES[interval]), 0, int(count))
     if rates is None or len(rates) == 0:
         raise MT5Error(f"MT5 sent no {interval} candles for {sym} ({lib.last_error()}).")
@@ -132,9 +162,9 @@ def candles(symbol: str, interval: str, count: int = 1500, lib=None) -> pd.DataF
 def tick(symbol: str, lib=None) -> tuple[float, float, datetime]:
     """Live (bid, ask, time in UTC) from MT5."""
     lib = connect(lib)
-    sym = symbol.strip().upper()
+    sym = resolve_symbol(symbol, lib)
     if lib.symbol_info(sym) is None or not lib.symbol_select(sym, True):
-        raise MT5Error(f"MT5 has no symbol {sym}. In MT5 open View > Market Watch to see the exact name (XM: GOLD).")
+        raise MT5Error(f"MT5 has no symbol {sym}. In MT5 open View > Market Watch to see the exact name.")
     t = lib.symbol_info_tick(sym)
     if t is None or not getattr(t, "bid", 0) or not getattr(t, "ask", 0):
         raise MT5Error(f"MT5 has no live price for {sym} now (market closed?).")

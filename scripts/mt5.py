@@ -33,10 +33,15 @@ def main() -> int:
             a = mt5.account(lib)
             print(f"Connected: {a['name']} · login {a['login']} · {a['server']} (demo ✅)")
             print(f"Balance {a['balance']:,.2f} {a['currency']} · equity {a['equity']:,.2f}")
-            hours, how = mt5.utc_offset_hours(lib, args.symbol.upper())
+            if "XM" not in str(a.get("server") or "").upper():
+                print("Note: this is not an XM server. Fine for practice; prices can differ a little from XM's.")
+            sym = mt5.resolve_symbol(args.symbol, lib)
+            if sym != args.symbol:
+                print(f"{args.symbol} here is {sym} (gold in US dollars).")
+            hours, how = mt5.utc_offset_hours(lib, sym)
             print(f"Server clock: UTC{hours:+g} ({how})")
-            df = mt5.candles(args.symbol, "15m", lib=lib)
-            print(f"{len(df)} fifteen-minute {args.symbol.upper()} candles; the last three (IST):")
+            df = mt5.candles(sym, "15m", lib=lib)
+            print(f"{len(df)} fifteen-minute {sym} candles; the last three (IST):")
             for t, r in df.tail(3).iterrows():
                 print(f"  {t:%d %b %H:%M}  O {r.Open:,.2f}  H {r.High:,.2f}  L {r.Low:,.2f}  C {r.Close:,.2f}")
             print("✅ MT5 connection works (read-only).")

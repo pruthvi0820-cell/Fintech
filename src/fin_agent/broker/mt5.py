@@ -28,8 +28,8 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 IST = ZoneInfo("Asia/Kolkata")
-TIMEFRAMES = {"1m": "TIMEFRAME_M1", "5m": "TIMEFRAME_M5", "15m": "TIMEFRAME_M15", "1h": "TIMEFRAME_H1",
-              "1d": "TIMEFRAME_D1"}
+TIMEFRAMES = {"1m": "TIMEFRAME_M1", "5m": "TIMEFRAME_M5", "15m": "TIMEFRAME_M15", "30m": "TIMEFRAME_M30",
+              "1h": "TIMEFRAME_H1", "1d": "TIMEFRAME_D1"}
 DEMO = 0                              # ACCOUNT_TRADE_MODE_DEMO (contest = 1, real = 2)
 DEAL_BUY, DEAL_SELL = 0, 1
 ENTRY_IN = 0                          # DEAL_ENTRY_IN; OUT = 1, INOUT = 2, OUT_BY = 3
@@ -131,6 +131,28 @@ def gold_symbol(lib) -> str:
             return name
     raise MT5Error("Couldn't find gold in US dollars (XAU/USD) in this MT5. Open View > Market Watch, find gold's "
                    "exact name, and put it in .env as FIN_AGENT_MT5_GOLD_SYMBOL=<name>.")
+
+
+def find_symbol(candidates: list[str], lib) -> str | None:
+    """The first candidate this broker lists: exact name, else a listed name that starts with it
+    (brokers add suffixes like 'US500.cash' or 'EURUSD.m'). None if none is listed."""
+    for name in candidates:
+        if lib.symbol_info(name) is not None:
+            return name
+    for name in candidates:
+        try:
+            listed = [str(getattr(x, "name", "")) for x in (lib.symbols_get(f"*{name}*") or ())]
+        except (AttributeError, TypeError):
+            listed = []
+        match = sorted(n for n in listed if n.upper().startswith(name.upper()))
+        if match:
+            return match[0]
+    return None
+
+
+def currency_of(symbol: str, lib) -> str | None:
+    info = lib.symbol_info(symbol)
+    return str(getattr(info, "currency_profit", "") or "") or None if info is not None else None
 
 
 def resolve_symbol(symbol: str, lib) -> str:

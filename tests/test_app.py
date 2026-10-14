@@ -778,7 +778,7 @@ def test_pro_chart_live_feed_file(app):
     assert '"feedUrl": "app/static/live/RELIANCE.NS_15m.json"' in html
     try:
         data = _json.loads(live.read_text())
-        assert data["source"].startswith("Yahoo") and len(data["bars"]) == 300
+        assert data["source"] == "live (Angel One / MT5)" and len(data["bars"]) == 300
     finally:
         live.unlink(missing_ok=True)
 

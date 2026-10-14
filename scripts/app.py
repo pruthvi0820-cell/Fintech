@@ -106,7 +106,7 @@ def load_angel_candles(ticker: str, interval: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=20, show_spinner=False)
 def load_freshest_candles(ticker: str, interval: str) -> tuple[pd.DataFrame, str]:
-    """Angel One live candles for NSE stocks when logged in today, else Yahoo (see pipelines/paper_live)."""
+    """Angel One live candles for NSE stocks when logged in today, else FinTray's price setting (paper_live)."""
     return paper_live.freshest_candles(ticker, interval, yahoo=load_candles_fresh)
 
 
@@ -137,7 +137,7 @@ def load_feed_candles(ticker: str, interval: str, source: str, mt5_symbol: str) 
         return mt5.candles(mt5_symbol, interval, count=300), "live (MT5 / XM demo)"
     if source == PRICE_SOURCES[1] and ticker.endswith(".NS"):
         return angel_market.candles(ticker, interval, days=5), "live (Angel One)"
-    return load_candles_fresh(ticker, interval), "Yahoo (often ~15 min late)"
+    return load_candles_fresh(ticker, interval), market_data.source_label()
 
 
 def pro_chart_feed(ticker: str, interval: str, source: str, mt5_symbol: str, key: str) -> None:
@@ -146,7 +146,7 @@ def pro_chart_feed(ticker: str, interval: str, source: str, mt5_symbol: str, key
         bars_, label = load_feed_candles(ticker, interval, source, mt5_symbol)
     except (angelone.AngelError, mt5.MT5Error, market_data.MarketDataError):
         try:
-            bars_, label = load_candles_fresh(ticker, interval), "Yahoo (often ~15 min late)"
+            bars_, label = load_candles_fresh(ticker, interval), market_data.source_label()
         except market_data.MarketDataError:
             return
     try:
@@ -181,7 +181,7 @@ def pro_chart_lines(ticker: str, plan, levels: list, marks: list) -> list[dict]:
     return lines
 
 
-PRICE_SOURCES = ("Yahoo (free, ~15 min late)", "Angel One (live, needs today's login)",
+PRICE_SOURCES = ("Automatic (FinTray's price setting)", "Angel One (live, needs today's login)",
                  "MT5 / XM demo (live, MT5 open on this computer)")
 AUTO_REFRESH_SECONDS = 60
 
@@ -198,7 +198,7 @@ def auto_refresh_tick() -> None:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_long_closes(ticker: str) -> pd.Series | None:
-    """All the daily closes Yahoo has (often 20+ years), for long holding-period records."""
+    """All the daily closes the price source has (Yahoo: often 20+ years; Angel One: about 5), for long records."""
     try:
         return market_data.fetch_history(ticker, period="max").bars["Close"]
     except market_data.MarketDataError:
@@ -403,7 +403,8 @@ def paper_tab() -> None:
     live_mode = st.toggle(
         "🔴 Live mode: check open trades every minute", key="paper_live",
         help="Re-checks stops, targets and the 15:20 square-off about once a minute. NSE stocks use live Angel One "
-             "prices when you've logged in today (python scripts\\angelone.py --login); otherwise Yahoo's, often "
+             "prices when you've logged in today (python scripts\\angelone.py --login); otherwise FinTray's price "
+             "setting (live sources only by default; Yahoo, often "
              "about 15 minutes late. Keep this page open, or run FinTray_Alerts.bat to get Telegram messages "
              "when a paper trade closes.")
     if live_mode:
@@ -1327,7 +1328,7 @@ def intraday_backtest_section() -> None:
         strategy = c1.selectbox("Strategy", list(ibt.STRATEGIES), format_func=lambda k: ibt.STRATEGIES[k][0],
                                 key="ibt_strategy")
         interval = c2.selectbox("Candles", ["15m", "5m", "1h"], key="ibt_interval",
-                                help="Yahoo keeps about 60 days of 5m/15m candles and about 2 years of 1h.")
+                                help="About 60 days of 5m/15m candles and up to 1-2 years of 1h are loaded.")
         c3, c4, c5 = st.columns(3)
         stop_atr = c3.number_input("Stop (× ATR)", 0.5, 5.0, 1.5, 0.25, key="ibt_stop")
         rr = c4.number_input("Target (× risk)", 0.5, 5.0, 2.0, 0.25, key="ibt_rr")
@@ -1376,7 +1377,7 @@ def next_candle_section() -> None:
         c1, c2, c3 = st.columns(3)
         pick = c1.selectbox("Symbol", choices, key="nc_symbol")
         interval = c2.selectbox("Candle", list(next_candle.TIMEFRAMES), index=2, key="nc_interval",
-                                help="Yahoo keeps 1-minute candles for about 7 days, 5-15 minutes for about 60 "
+                                help="About 7 days of 1-minute candles, 60 days of 5-15 minutes and 1-2 years of 1h "
                                      "days, 1 hour for about 2 years.")
         payout = c3.slider("Payout on a win (%)", 50, 100, 82, key="nc_payout",
                            help="Fixed-payout up/down trades pay this share of your stake on a win and take all "
@@ -1420,12 +1421,13 @@ def chart_tab() -> None:
     i1, i3, i2 = st.columns([3, 2, 1])
     source = i3.selectbox("Prices from", PRICE_SOURCES, key="chart_source", disabled=interval == "1d",
                           help="Angel One gives live NSE prices for 5m/15m/1h candles after "
-                               "python scripts\\angelone.py --login. Other symbols and daily candles use Yahoo.")
+                               "python scripts\\angelone.py --login. 'Automatic' follows FinTray's price setting: "
+                               "Angel One for India and MT5 for the rest (live sources only, the default).")
     mt5_symbol = "GOLD"
     if source == PRICE_SOURCES[2]:
         mt5_symbol = st.text_input("MT5 symbol", value="GOLD", key="chart_mt5_symbol",
                                    help="The name in MT5's Market Watch (XM gold: GOLD). The buy/sell conditions "
-                                        "and backtest above the chart still use the Yahoo symbol's daily candles "
+                                        "and backtest above the chart use the daily candles of the symbol above "
                                         "(for gold: GC=F).").strip().upper() or "GOLD"
     st.session_state.setdefault("chart_indicators", list(DEFAULT_INDICATORS))
     shown_indicators = i1.multiselect(
@@ -1500,7 +1502,8 @@ def chart_tab() -> None:
         try:
             live = source == PRICE_SOURCES[1] and hist.ticker.endswith(".NS")
             if source == PRICE_SOURCES[1] and not live:
-                st.caption(f"Angel One live prices are for NSE stocks; {hist.ticker} uses Yahoo.")
+                st.caption(f"Angel One live prices are for NSE stocks; {hist.ticker} uses "
+                           f"{market_data.source_label()}.")
             chart_bars = None
             if source == PRICE_SOURCES[2]:
                 try:
@@ -1511,7 +1514,8 @@ def chart_tab() -> None:
                                f"{chart_bars.index[-1]:%d %b %H:%M} IST (still forming until it closes). Volume is "
                                "tick volume.")
                 except mt5.MT5Error as exc:
-                    st.warning(f"MT5 prices unavailable: {exc} Showing Yahoo prices for {hist.ticker}.")
+                    st.warning(f"MT5 prices unavailable: {exc} Showing {market_data.source_label()} prices for "
+                               f"{hist.ticker}.")
             if live:
                 try:
                     with st.spinner(f"Fetching live {interval} candles from Angel One…"):
@@ -1520,7 +1524,7 @@ def chart_tab() -> None:
                     st.caption(f"🟢 Live Angel One prices. Last candle {chart_bars.index[-1]:%d %b %H:%M} IST "
                                "(still forming until it closes).")
                 except angelone.AngelError as exc:
-                    st.warning(f"Live prices unavailable: {exc} Showing Yahoo prices (often ~15 min late).")
+                    st.warning(f"Live prices unavailable: {exc} Showing {market_data.source_label()} prices.")
             if chart_bars is None:
                 with st.spinner(f"Fetching {interval} candles…"):
                     chart_bars = (load_candles_fresh if auto else load_candles)(hist.ticker, interval)
@@ -1557,7 +1561,7 @@ def chart_tab() -> None:
             symbol=hist.ticker if source != PRICE_SOURCES[2] else mt5_symbol, interval=interval, bars=chart_bars,
             lines=pro_chart_lines(hist.ticker, plan, levels, marks) + smc_lines, notes=notes + smc_notes,
             zones=smc_zones,
-            feed_key_=key if auto else None, source="live" if live_ok else "Yahoo (often ~15 min late)"), height=620)
+            feed_key_=key if auto else None, source="live" if live_ok else market_data.source_label()), height=620)
         st.caption("Draw with the tools on the left (trend line, ray, horizontal/vertical lines, channels, Fibonacci, "
                    "zone, note; 🧲 snaps to prices; select a drawing and press Delete to remove it). Drawings and "
                    "indicators (ƒx) are saved in this browser for each symbol. FinTray's lines are locked: plan, "
@@ -1585,7 +1589,8 @@ def chart_tab() -> None:
                    "disappear when the page reloads; to keep a level, save it as a mark below."
                    + (f" 🔄 Auto-refresh on: last candle {shown.index[-1]:%d %b %H:%M}, fetched "
                       f"{datetime.now(ZoneInfo('Asia/Kolkata')):%H:%M:%S} IST."
-                      + ("" if live_ok else " Yahoo prices are often about 15 minutes late.") if auto else ""))
+                      + ("" if live_ok or market_data.price_source() == "live"
+                         else " Yahoo prices are often about 15 minutes late.") if auto else ""))
     marks_section(hist.ticker, float(bars["Close"].iloc[-1]), marks)
     patterns_section(chart_bars, interval, recent_patterns)
     smc_section(chart_bars, interval, smc_result, smc_market)
@@ -1852,7 +1857,7 @@ def terminal_tab() -> None:
                "take-profit, pending orders, partial closes. Fills are never kinder than a broker's (ask/bid, gaps "
                "at the open, stop first), NSE stocks are squared off at 15:20, and FinTray's risk rules apply to "
                "every trade. Live prices: NSE through Angel One (log in today), gold through MT5 (XM demo open on "
-               "this computer); otherwise delayed Yahoo prices, labelled. Nothing here can place a real order.")
+               "this computer); otherwise the last 1-minute candle, labelled. Nothing here can place a real order.")
     try:
         term = terminal_mod.Terminal()
     except (OSError, sqlite3.Error) as exc:
@@ -1959,7 +1964,8 @@ def longterm_tab() -> None:
     upload = st.file_uploader(
         "Optional, more reliable: the company's screener.in Excel export", type=["xlsx"], key="lt_file",
         help="On screener.in (free login), open the company page and click 'Export to Excel'. Without a "
-             "file, Yahoo's statements are used; they are less reliable for banks.")
+             "file: with FinTray's default live-only setting, the file is needed (brokers don't provide "
+             "statements); with FIN_AGENT_PRICES=yahoo, Yahoo's statements are used (less reliable for banks).")
     if clicked:
         st.session_state["lt_ticker"] = normalise_ticker(raw)
     ticker = st.session_state.get("lt_ticker")
@@ -2070,7 +2076,8 @@ def portfolio_health_section(portfolio) -> None:
     for flag in health_flags(snap, targets, mix):
         st.warning(flag)
     st.caption("Targets are yours; FinTray only measures the gap. Rupee amounts are the distance from your "
-               "target, not a suggestion to trade. Sectors come from Yahoo and can be missing.")
+               "target, not a suggestion to trade. Sectors come from Yahoo (only with FIN_AGENT_PRICES=yahoo) "
+               "and can be missing.")
 
 
 def tax_timing_section() -> None:

@@ -27,7 +27,10 @@ LTP_PATH = "/rest/secure/angelbroking/order/v1/getLtpData"
 IST = ZoneInfo("Asia/Kolkata")
 # FinTray interval -> (SmartAPI interval, days fetched; within SmartAPI's per-request limit)
 INTERVALS = {"1m": ("ONE_MINUTE", 7), "5m": ("FIVE_MINUTE", 60), "15m": ("FIFTEEN_MINUTE", 60),
-             "1h": ("ONE_HOUR", 365), "1d": ("ONE_DAY", 730)}
+             "30m": ("THIRTY_MINUTE", 180), "1h": ("ONE_HOUR", 365), "1d": ("ONE_DAY", 2000)}
+# NSE indices have fixed tokens (no symbol search) [Likely: confirm with angelone.py --candles ^NSEI]
+INDEX_TOKENS = {"^NSEI": ("Nifty 50", "99926000"), "^NSEBANK": ("Nifty Bank", "99926009"),
+                "^INDIAVIX": ("India VIX", "99926017")}
 _tokens: dict[str, tuple[str, str]] = {}        # symbol -> (trading symbol, token); tokens don't change
 
 
@@ -82,7 +85,8 @@ def candles(ticker: str, interval: str, http=requests, now: datetime | None = No
         raise AngelError(f"Angel One candles: interval must be one of {tuple(INTERVALS)}.")
     name, max_days = INTERVALS[interval]
     days = max_days if days is None else max(1, min(int(days), max_days))
-    _, token = symbol_token(nse_symbol(ticker), http)
+    index = INDEX_TOKENS.get((ticker or "").strip().upper())
+    _, token = index if index else symbol_token(nse_symbol(ticker), http)
     end = (now or datetime.now(IST)).astimezone(IST)
     fmt = "%Y-%m-%d %H:%M"
     body = {"exchange": "NSE", "symboltoken": token, "interval": name,
@@ -101,7 +105,8 @@ def candles(ticker: str, interval: str, http=requests, now: datetime | None = No
 
 def ltp(ticker: str, http=requests) -> float:
     """Last traded price, live."""
-    trading_symbol, token = symbol_token(nse_symbol(ticker), http)
+    index = INDEX_TOKENS.get((ticker or "").strip().upper())
+    trading_symbol, token = index if index else symbol_token(nse_symbol(ticker), http)
     data = _post(LTP_PATH, {"exchange": "NSE", "tradingsymbol": trading_symbol, "symboltoken": token}, http) or {}
     price = _num(data.get("ltp")) if isinstance(data, dict) else float("nan")
     if not price > 0:

@@ -1,6 +1,7 @@
 """MT5 (XM demo) read-only connector with a fake MetaTrader5 library: demo lock, times, risk flags, stats."""
 
 import ast
+import fnmatch
 import inspect
 from collections import namedtuple
 from datetime import datetime, timezone
@@ -60,7 +61,7 @@ class FakeMT5:
         return sym in self.symbols
 
     def symbols_get(self, group):
-        return tuple(Sym(n) for n in self.symbols if "XAU" in n)
+        return tuple(Sym(n) for n in self.symbols if fnmatch.fnmatch(n.upper(), group.upper()))
 
     def symbol_info_tick(self, sym):
         return Tick(int(NOW.timestamp()) + SERVER - 20, 4190.0, 4190.5)

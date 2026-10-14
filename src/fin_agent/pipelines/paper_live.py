@@ -1,7 +1,8 @@
 """Live paper trading: check open paper trades against the freshest prices available.
 
 NSE stocks use Angel One's live candles when you are logged in today (scripts/angelone.py --login);
-otherwise, and for everything else, Yahoo's (often ~15 minutes late). The same exit rules as always
+otherwise prices come through market_data (live sources only by default; Yahoo only if
+FIN_AGENT_PRICES=yahoo). The same exit rules as always
 (paper.find_intraday_exit / find_exit): stop first if a candle touches both, gaps fill at the open,
 intraday square-off at 15:20 IST. Used by the Paper tab (live mode) and by the Telegram runner,
 which checks every minute. Virtual money only: nothing here can place an order.
@@ -33,13 +34,13 @@ def yahoo_daily(ticker: str) -> pd.DataFrame:
 
 def freshest_candles(ticker: str, interval: str, angel: Callable = angel_market.candles,
                      yahoo: Callable = yahoo_candles) -> tuple[pd.DataFrame, str]:
-    """(candles, where they came from): Angel One live for NSE stocks when possible, else Yahoo."""
+    """(candles, where they came from): Angel One live for NSE stocks when possible, else market_data."""
     if ticker.upper().endswith(".NS"):
         try:
             return angel(ticker, interval), LIVE
         except AngelError:
-            pass                       # not set up / not logged in today / Angel One unreachable: use Yahoo
-    return yahoo(ticker, interval), DELAYED
+            pass                       # not set up / not logged in today / unreachable: the general route
+    return yahoo(ticker, interval), (DELAYED if market_data.price_source() == "yahoo" else LIVE)
 
 
 @dataclass

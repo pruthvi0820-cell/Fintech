@@ -1,8 +1,10 @@
-"""Price data fetching.
+"""Price data fetching: the one place every price in FinTray comes from.
 
-yfinance is an unofficial Yahoo Finance scraper: free, convenient, often ~15 min delayed,
-and it can break when Yahoo changes things. Everything outside this module depends only on
-`PriceHistory`, so swapping in Alpha Vantage or a broker feed later touches this file alone.
+FIN_AGENT_PRICES chooses the source:
+- "live" (the default): only your own live sources, Angel One (India) and MetaTrader 5 (gold,
+  currencies, world indices, US stocks), see live_prices.py. Never Yahoo.
+- "yahoo": yfinance, an unofficial Yahoo Finance scraper (free, often ~15 min delayed, can break).
+Everything outside this module depends only on `PriceHistory`.
 
 Indian tickers: NSE = "RELIANCE.NS", BSE = "RELIANCE.BO". Indices: "^NSEI" (Nifty 50), "^GSPC" (S&P 500).
 """
@@ -11,6 +13,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+
+import os
 
 import pandas as pd
 
@@ -46,8 +50,42 @@ class PriceHistory:
         return self.last_bar_at.astimezone(tz).date().isoformat()
 
 
+def price_source() -> str:
+    """'live' (Angel One + MT5, the default) or 'yahoo', from FIN_AGENT_PRICES."""
+    v = os.getenv("FIN_AGENT_PRICES", "live").strip().lower()
+    return "yahoo" if v == "yahoo" else "live"
+
+
+def source_label() -> str:
+    """Where prices come from under the current setting, for captions."""
+    return "Yahoo (often ~15 min late)" if price_source() == "yahoo" else "live (Angel One / MT5)"
+
+
 def fetch_history(ticker: str, period: str = "2y", interval: str = "1d", retries: int = 3) -> PriceHistory:
-    """Fetch adjusted OHLCV bars. Uses 2y by default so a 200-day average has room to exist."""
+    """Fetch OHLCV bars. Uses 2y by default so a 200-day average has room to exist."""
+    if price_source() == "live":
+        return _fetch_live(ticker, period, interval)
+    return _fetch_yahoo(ticker, period, interval, retries)
+
+
+def _fetch_live(ticker: str, period: str, interval: str) -> PriceHistory:
+    from fin_agent.broker.angelone import AngelError
+    from fin_agent.broker.mt5 import MT5Error
+    from fin_agent.data import live_prices
+
+    ticker = ticker.strip().upper()
+    try:
+        bars, currency, source = live_prices.fetch(ticker, period, interval)
+    except (AngelError, MT5Error, live_prices.NotAvailable, ValueError) as exc:
+        raise MarketDataError(str(exc)) from None
+    bars = bars[OHLCV].dropna(subset=["Close"])
+    if bars.empty:
+        raise MarketDataError(f"{ticker}: the live source sent no prices.")
+    return PriceHistory(ticker=ticker, bars=bars, currency=currency, source=source,
+                        fetched_at=datetime.now(timezone.utc), last_bar_at=live_prices.as_of(bars), interval=interval)
+
+
+def _fetch_yahoo(ticker: str, period: str, interval: str, retries: int) -> PriceHistory:
     import yfinance as yf  # imported here so tests and other sources don't need it
 
     import time

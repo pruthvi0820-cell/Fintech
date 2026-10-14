@@ -36,7 +36,8 @@ def test_nse_stocks_use_live_angel_prices_first():
     assert got[0] is live and got[1] == paper_live.LIVE
 
 
-def test_falls_back_to_yahoo_when_not_logged_in_or_not_nse():
+def test_falls_back_to_yahoo_when_not_logged_in_or_not_nse(monkeypatch):
+    monkeypatch.setenv("FIN_AGENT_PRICES", "yahoo")
     def logged_out(t, i):
         raise AngelLoginNeeded("Not logged in")
     yahoo = candles([(2, 2, 2, 2)])

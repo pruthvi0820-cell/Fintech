@@ -35,7 +35,8 @@ def test_live_sources_first():
     assert (g.bid, g.ask, g.source) == (4190.1, 4190.6, "live (MT5 / XM demo)")
 
 
-def test_fallbacks_are_labelled():
+def test_fallbacks_are_labelled(monkeypatch):
+    monkeypatch.setenv("FIN_AGENT_PRICES", "yahoo")
     q = tf.quote("SBIN.NS", NOW, angel_ltp=no_angel, yahoo=lambda s: bars([799.0, 800.0]))
     assert q.source == "Yahoo, delayed" and q.ask == pytest.approx(800.025) and q.at == NOW - timedelta(minutes=2)
     seen = []
@@ -72,3 +73,10 @@ def test_refresh_applies_prices_to_open_trades(tmp_path):
     def broken(sym):
         raise TerminalError(f"No price for {sym} now.")
     assert tf.refresh(term, ["SBIN.NS"], quote_fn=broken).problems == ["No price for SBIN.NS now."]
+
+
+
+def test_live_mode_fallback_label(monkeypatch):
+    monkeypatch.setenv("FIN_AGENT_PRICES", "live")
+    q = tf.quote("SBIN.NS", NOW, angel_ltp=no_angel, yahoo=lambda s: bars([799.0, 800.0]))
+    assert q.source == "live (last 1-minute candle)"

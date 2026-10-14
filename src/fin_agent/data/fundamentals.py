@@ -50,6 +50,13 @@ def _frame(get) -> pd.DataFrame:
 def fetch_statements(ticker: str) -> Statements:
     """Annual statements, dividends and the latest price. Raises FundamentalsError if Yahoo
     returns neither an income statement nor a balance sheet."""
+    from fin_agent.data.market_data import price_source
+    if price_source() == "live":
+        raise FundamentalsError(
+            f"{ticker.strip().upper()}: company statements don't come from Angel One or MT5, and FinTray is set to "
+            "live sources only (no Yahoo). Upload the company's Screener.in export (free: screener.in, the "
+            "company page, 'Export to Excel') in the box above. To use Yahoo's statements instead, set "
+            "FIN_AGENT_PRICES=yahoo in .env.")
     import yfinance as yf
 
     ticker = ticker.strip().upper()
@@ -91,7 +98,13 @@ def fetch_statements(ticker: str) -> Statements:
 
 def fetch_quote(ticker: str) -> tuple[float | None, str | None, str | None]:
     """(latest price, currency, sector) from Yahoo, best effort: (None, None, None) on any failure.
-    Used with a Screener file, which has statements but no live price or sector."""
+    Used with a Screener file, which has statements but no live price or sector. With live sources only
+    (the default), the price comes from Angel One / MT5 and the sector stays unknown."""
+    from fin_agent.data.market_data import price_source
+    if price_source() == "live":
+        from fin_agent.data import live_prices
+        t = ticker.strip().upper()
+        return live_prices.last_price(t), "INR" if t.endswith(".NS") else None, None
     try:
         import yfinance as yf
         yt = yf.Ticker(ticker.strip().upper())

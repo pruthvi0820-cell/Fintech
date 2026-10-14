@@ -9,6 +9,12 @@ import pytest
 from fin_agent.analysis.fundamentals import compute_fundamentals, rows_found
 from fin_agent.data.fundamentals import FundamentalsError, Statements, fetch_statements
 
+
+@pytest.fixture(autouse=True)
+def yahoo_mode(monkeypatch):
+    """These tests cover the Yahoo route (FIN_AGENT_PRICES=yahoo); live-only mode is tested at the end."""
+    monkeypatch.setenv("FIN_AGENT_PRICES", "yahoo")
+
 YEARS = pd.to_datetime(["2026-03-31", "2025-03-31", "2024-03-31", "2023-03-31"])
 NOW = pd.Timestamp("2026-10-09", tz="UTC")
 CR = 1e7
@@ -202,3 +208,14 @@ def test_inputs_table_in_crore_with_row_names():
     assert t["revenue (Total Revenue)"]["2026-03-31"] == 1331.0
     assert t["eps (Diluted EPS)"] == {"2026-03-31": 40.0, "2025-03-31": 32.0}
     assert t["equity (Stockholders Equity)"]["2025-03-31"] == 900.0
+
+
+
+def test_live_only_mode_never_asks_yahoo(monkeypatch):
+    from fin_agent.data import fundamentals as fmod, live_prices
+    monkeypatch.setenv("FIN_AGENT_PRICES", "live")
+    monkeypatch.setitem(sys.modules, "yfinance", None)                 # any Yahoo import would now fail
+    with pytest.raises(FundamentalsError, match="Screener.in export"):
+        fetch_statements("TCS.NS")
+    monkeypatch.setattr(live_prices, "last_price", lambda t: 3500.0)
+    assert fmod.fetch_quote("TCS.NS") == (3500.0, "INR", None)

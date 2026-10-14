@@ -46,7 +46,7 @@ def main() -> int:
             return 0
         if args.candles:
             ticker = args.candles.strip().upper()
-            ticker = ticker if ticker.endswith(".NS") else f"{ticker}.NS"
+            ticker = ticker if ticker.endswith(".NS") or ticker.startswith("^") else f"{ticker}.NS"
             print(f"Live price {ticker}: ₹{angel_market.ltp(ticker):,.2f}")
             df = angel_market.candles(ticker, "15m")
             print(f"{len(df)} fifteen-minute candles; the last three (IST):")

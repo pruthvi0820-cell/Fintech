@@ -1,9 +1,10 @@
 """Prices for the Paper Terminal: live quotes and the last few hours of 1-minute candles.
 
 Best source first, falling back with a label so you always know how fresh a price is:
-- NSE stocks: Angel One live price (after today's `angelone.py --login`), else Yahoo (often ~15 min late);
-- gold: the MT5 program on this computer (XM demo, real bid/ask), else Yahoo's COMEX gold futures (GC=F),
-  which differ from XM's spot price by a few dollars.
+- NSE stocks: Angel One live price (after today's `angelone.py --login`);
+- gold: the MT5 program on this computer (demo account, real bid/ask);
+- else the last 1-minute candle through market_data (live sources only by default; Yahoo only if
+  FIN_AGENT_PRICES=yahoo, where gold is COMEX futures GC=F, a few dollars off spot).
 `refresh` feeds them to the terminal so stops, targets and pending orders work while the page is open
 (and from the Telegram runner every minute). Virtual money only.
 """
@@ -48,7 +49,10 @@ def quote(symbol: str, now: datetime | None = None, angel_ltp: Callable = angel_
         raise TerminalError(f"No price for {inst.symbol} now.")
     last_t = pd.Timestamp(bars.index[-1])
     at = (last_t.tz_localize("UTC") if last_t.tzinfo is None else last_t).to_pydatetime()
-    label = "Yahoo GC=F futures, delayed" if inst.symbol == "GOLD" else "Yahoo, delayed"
+    if market_data.price_source() == "yahoo":
+        label = "Yahoo GC=F futures, delayed" if inst.symbol == "GOLD" else "Yahoo, delayed"
+    else:
+        label = "live (last 1-minute candle)"
     return quote_from_price(float(bars["Close"].iloc[-1]), inst, at, label)
 
 

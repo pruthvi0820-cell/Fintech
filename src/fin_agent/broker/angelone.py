@@ -98,7 +98,11 @@ def login(cfg: AngelConfig, pin: str, totp: str, http=requests) -> dict[str, str
     """The daily login. pin and totp are used for this request only and never stored or printed."""
     pin, totp = (pin or "").strip(), (totp or "").strip()
     if not pin.isdigit() or not 4 <= len(pin) <= 8:
-        raise AngelError("The PIN should be the 4-digit (or longer) number you use to log in to Angel One.")
+        got = "nothing" if not pin else f"{len(pin)} character{'s' if len(pin) != 1 else ''}" + \
+            ("" if pin.isdigit() else ", not all digits")
+        raise AngelError(f"FinTray received {got} for the PIN; it should be the 4-digit (or longer) number you use to "
+                         "log in to Angel One. Nothing shows while you type it: use the number keys above the "
+                         "letters (or turn Num Lock on for the keypad), don't paste, then press Enter.")
     if not totp.isdigit() or len(totp) != 6:
         raise AngelError("The code is the 6-digit number from your authenticator app (it changes every 30 seconds).")
     try:

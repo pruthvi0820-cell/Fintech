@@ -126,3 +126,12 @@ def test_tradebook_imports_into_the_journal(tmp_path):
     (t,) = book.round_trips(cost_per_side=0.0)
     assert t.symbol == "SBIN" and t.pnl == 50.0 and t.opened.strftime("%H:%M") == "10:15"
     assert set(book.fills()["source"]) == {"angelone"}
+
+
+@pytest.mark.parametrize(("pin", "said"), [("", "received nothing"), ("12", "received 2 characters"),
+                                           ("12a4", "4 characters, not all digits")])
+def test_pin_problem_says_what_arrived_without_showing_it(pin, said):
+    from fin_agent.broker.angelone import AngelConfig, AngelError, login
+    with pytest.raises(AngelError, match=said) as exc:
+        login(AngelConfig("k", "A1"), pin, "123456", http=None)
+    assert "Num Lock" in str(exc.value) and (not pin or pin not in str(exc.value))

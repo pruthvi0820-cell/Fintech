@@ -25,7 +25,7 @@ fin_agent/
 │   │   └── output_checks.py     # verifies Claude's numbers and citations AFTER it writes
 │   ├── llm/                     # Claude client + versioned prompts
 │   ├── pipelines/               # fetch → compute → explain → check (reused by agents later)
-│   ├── agents/                  # Phase 2: LangGraph + approval checkpoints
+│   ├── agents/                  # Phase 2: LangGraph trade-review agent, human approval (trade_review.py)
 │   ├── broker/                  # Phase 3: paper-trading gateway (HITL enforced here)
 │   ├── portfolio/  tutor/       # later
 └── tests/                       # offline: synthetic prices + fixture feeds
@@ -60,13 +60,46 @@ Small local models break the "only use the given numbers" rule more often than l
 
 **Thinking (`FIN_AGENT_THINK`, default `false`):** reasoning models like qwen3 think before answering. On a laptop that is slow, and it can use the whole token budget. With `false`, Ollama is sent `reasoning_effort: "none"`, its documented way to turn thinking off through the OpenAI-compatible API. Other providers are sent nothing. Local providers get a 4096-token budget; Anthropic keeps 1200–1500.
 
+## Trade-review agent (LangGraph + RAG)
+
+A LangGraph state graph that proposes a paper trade and **pauses for a human** before anything happens
+(`src/fin_agent/agents/trade_review.py`):
+
+```
+plan ──► risk_gate ──(blocked)──► END
+             │ passed
+             ▼
+         retrieve ──► review ──► approval ⏸ ──(approved)──► execute ──► END
+                                     └──(rejected)──► rejected ──► END
+```
+
+1. **plan**: code sizes the trade from daily candles and the paper account's capital. No model.
+2. **risk_gate**: the hard risk rules and the pre-trade checklist. A blocked trade ends here; the model is never asked.
+3. **retrieve**: hybrid search over your trusted library: BM25 keywords plus a Chroma vector store, merged with
+   Reciprocal Rank Fusion (`knowledge/vectors.py`). Embeddings come from a local model through any
+   OpenAI-compatible `/embeddings` endpoint (default: Ollama `nomic-embed-text`). If the embedding server is
+   down, it falls back to keyword search and says so.
+4. **review**: the LLM explains the plan, the checklist and the passages. Its numbers and `lib #` citations are
+   checked after it writes. If the model is down, the approver still gets the code-made facts.
+5. **approval**: LangGraph `interrupt()`; the checkpointer keeps the paused state so a page reload can resume it.
+6. **execute**: opens the trade **on paper only**, after the risk rules are checked again.
+
+```bash
+pip install -e ".[agent]"                 # langgraph, chromadb
+ollama pull nomic-embed-text              # only for meaning-based search
+python scripts/agent_review.py TCS.NS --reason "Breakout above resistance" --semantic
+```
+
+In the page: **🧪 Paper trading → 🤖 Agent trade review**. Optional settings: `FIN_AGENT_EMBED_URL`,
+`FIN_AGENT_EMBED_MODEL`, `FIN_AGENT_VECTOR_PATH` (default `library/vectors/`, git-ignored).
+
 ## Setup
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 519 tests, no network needed
+pytest                      # 894 tests, no network needed
 ```
 
 ## Trying it without a broker account

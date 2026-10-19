@@ -94,6 +94,7 @@ class Passage:
     page: int | None
     text: str
     score: float
+    passage_id: int | None = None   # row id in `passages`; links a passage to its vector (knowledge/vectors.py)
 
     def citation(self) -> str:
         return f"lib #{self.doc.id}" + (f", p.{self.page}" if self.page else "")
@@ -255,10 +256,10 @@ class Library:
         key = (str(self.path.resolve()), self.version())
         if key not in _INDEX_CACHE:
             with closing(self._connect()) as db:
-                rows = db.execute("SELECT p.doc_id, p.page, p.text FROM passages p JOIN documents d "
+                rows = db.execute("SELECT p.doc_id, p.page, p.text, p.id FROM passages p JOIN documents d "
                                   "ON d.id = p.doc_id WHERE d.removed_at IS NULL ORDER BY p.id").fetchall()
-            rows = [(r[0], r[1], r[2]) for r in rows]
-            counts = [Counter(tokens(text)) for _, _, text in rows]
+            rows = [(r[0], r[1], r[2], r[3]) for r in rows]
+            counts = [Counter(tokens(text)) for _, _, text, _ in rows]
             lengths = [sum(c.values()) for c in counts]
             df: Counter = Counter()
             for c in counts:
@@ -294,14 +295,32 @@ class Library:
         docs = {d.id: d for d in self.documents()}
         out, per_doc = [], Counter()
         for score, i in scored:
-            doc_id, page, text = idx.rows[i]
+            doc_id, page, text, pid = idx.rows[i]
             if per_doc[doc_id] >= PER_DOCUMENT or doc_id not in docs:
                 continue
             per_doc[doc_id] += 1
-            out.append(Passage(docs[doc_id], page, text, round(score, 3)))
+            out.append(Passage(docs[doc_id], page, text, round(score, 3), pid))
             if len(out) >= limit:
                 break
         return out
+
+    def passage_rows(self) -> list[tuple[int, int, int | None, str]]:
+        """(passage id, document id, page, text) for every passage of a document still in the library."""
+        return [(pid, doc_id, page, text) for doc_id, page, text, pid in self._index().rows]
+
+    def passages_by_ids(self, ids: list[int], scores: dict[int, float] | None = None) -> list[Passage]:
+        """The passages with these ids, in the order given. Ids of removed documents are skipped."""
+        wanted = list(dict.fromkeys(int(i) for i in ids))
+        if not wanted:
+            return []
+        docs = {d.id: d for d in self.documents()}
+        marks = ",".join("?" * len(wanted))
+        with closing(self._connect()) as db:
+            rows = {r["id"]: r for r in db.execute(f"SELECT id, doc_id, page, text FROM passages WHERE id IN ({marks})",
+                                                   wanted)}
+        scores = scores or {}
+        return [Passage(docs[rows[i]["doc_id"]], rows[i]["page"], rows[i]["text"], round(scores.get(i, 0.0), 4), i)
+                for i in wanted if i in rows and rows[i]["doc_id"] in docs]
 
 
 # ---------------------------------------------------------------- for the model, and checking it

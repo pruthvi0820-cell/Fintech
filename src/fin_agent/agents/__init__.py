@@ -1,1 +1,1 @@
-"""Phase 2: LangGraph agent graphs, tools and approval checkpoints."""
+"""Phase 2: LangGraph agents with human approval checkpoints (trade_review.py)."""

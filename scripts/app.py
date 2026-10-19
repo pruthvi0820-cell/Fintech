@@ -391,6 +391,91 @@ def risk_rules_panel(book) -> None:
                     st.success(msg)
 
 
+@st.cache_resource
+def agent_checkpointer():
+    """Paused agent reviews live here, so a page rerun (any click) can resume them. One per app process."""
+    from langgraph.checkpoint.memory import InMemorySaver
+    return InMemorySaver()
+
+
+def agent_review_section(book) -> None:
+    """LangGraph agent: code plans and checks a paper trade, the AI reviews it, a human approves."""
+    with st.expander("🤖 Agent trade review (LangGraph, you approve every trade)"):
+        st.caption("The agent sizes a paper trade from daily candles, runs the hard risk rules and the checklist "
+                   "(a blocked trade stops there), looks up your trusted library, and has the AI explain it with "
+                   "its numbers and citations checked. Then it pauses for you. Only an approved trade is opened, "
+                   "on paper, after the rules are checked again.")
+        try:
+            from fin_agent.agents import trade_review as agent
+        except ImportError:
+            st.info('Install the agent extras first: pip install -e ".[agent]"')
+            return
+        c1, c2 = st.columns([1, 2])
+        ticker = c1.text_input("Stock", "TCS.NS", key="agent_ticker")
+        reason = c2.text_input("Your reason for the trade", key="agent_reason", max_chars=agent.MAX_REASON_CHARS)
+        semantic = st.toggle("Meaning-based library search (needs an embedding model, e.g. ollama pull "
+                             "nomic-embed-text)", key="agent_semantic")
+        lib, index = get_library(), None
+        if semantic and lib is not None:
+            from fin_agent.knowledge import vectors
+            try:
+                index = vectors.VectorIndex(vectors.default_vector_path(lib), vectors.embedder_from_env())
+                with st.spinner("Updating the library's vectors..."):
+                    index.sync(lib)
+            except vectors.VectorError as exc:
+                st.warning(f"{exc} Using keyword search.")
+                index = None
+
+        def make_graph(client):        # the model is only needed when a review starts, not to approve one
+            return agent.build_graph(agent.AgentTools(client=client, book=book,
+                                                      load_bars=lambda t: load_history(t).bars,
+                                                      library=lib, index=index), agent_checkpointer())
+        try:
+            graph = make_graph(None)
+        except agent.AgentError as exc:
+            st.info(str(exc))
+            return
+        if st.button("Propose a paper trade", key="agent_start"):
+            import uuid
+            st.session_state["agent_thread"] = uuid.uuid4().hex
+            try:
+                with st.spinner("Planning, checking rules, reading the library, asking the AI..."):
+                    agent.start_review(make_graph(ai_client()), st.session_state["agent_thread"],
+                                       normalise_ticker(ticker), reason)
+            except agent.AgentError as exc:
+                st.error(str(exc))
+                st.session_state.pop("agent_thread", None)
+        thread = st.session_state.get("agent_thread")
+        if not thread:
+            return
+        step = agent.current_step(graph, thread)
+        state = step.state
+        if plan := state.get("plan"):
+            st.dataframe(pd.DataFrame([{"Entry ₹": plan["entry"], "Stop ₹": plan["stop"], "Target ₹": plan["target"],
+                                        "Shares": plan["shares"], "Max loss ₹": plan["max_loss"],
+                                        "Reward if target ₹": plan["reward_if_target"]}]), hide_index=True)
+        if checklist := state.get("checklist"):
+            st.dataframe(pd.DataFrame(checklist["items"]), hide_index=True)
+        if retrieval := state.get("retrieval"):
+            st.caption(f"Library search: {retrieval['mode']}" + (f" ({retrieval['note']})" if retrieval.get("note")
+                                                                 else ""))
+        if review := state.get("review"):
+            st.markdown(review)
+            if state.get("review_check"):
+                st.caption(state["review_check"])
+        if step.pending is not None:
+            note = st.text_input("Note for your decision (optional)", key="agent_note")
+            a, r = st.columns(2)
+            choice = (True if a.button("✅ Approve: open on paper", key="agent_yes") else
+                      False if r.button("❌ Reject", key="agent_no") else None)
+            if choice is not None:
+                state = agent.resume_review(graph, thread, approved=choice, note=note).state
+        outcome = state.get("outcome")
+        if outcome:
+            {"opened": st.success, "rejected": st.info, "blocked": st.warning}.get(outcome["status"], st.error)(
+                outcome["message"])
+
+
 def paper_tab() -> None:
     st.caption("Practise with virtual money before risking real money. Swing trades are checked against each daily "
                "candle after the buy; intraday trades against their 5m/15m/1h candles from the entry time, and "
@@ -410,6 +495,7 @@ def paper_tab() -> None:
     if live_mode:
         auto_refresh_tick()
     risk_rules_panel(book)
+    agent_review_section(book)
     check = paper_live.check_paper(book, intraday=load_freshest_candles if live_mode else
                                    (lambda tk, iv: (load_candles(tk, iv), paper_live.DELAYED)),
                                    daily=lambda tk: load_history(tk).bars)

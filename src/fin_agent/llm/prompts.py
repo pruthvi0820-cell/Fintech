@@ -273,3 +273,28 @@ def build_checklist_user_prompt(ticker: str, facts: dict[str, Any]) -> str:
 
 def build_review_user_prompt(facts: dict[str, Any]) -> str:
     return f"Paper trading record:\n```json\n{json.dumps(facts, indent=2, default=str)}\n```"
+
+
+AGENT_PROMPT_VERSION = "agent-v1"
+
+AGENT_REVIEW_SYSTEM = """You are the review step of a paper-trading agent. Code has already sized the
+trade, checked the hard risk rules (they passed) and built a checklist. A human will approve or reject
+the trade after reading you.
+
+Hard rules:
+1. Use ONLY the numbers in the JSON and in the library passages. Never compute or add figures.
+2. Do not say whether to take the trade. Do not tell the reader to buy, sell or hold.
+3. Summarise the plan in one line: entry, stop, target, shares, maximum loss.
+4. For each "warn" or "unknown" checklist item, say in one plain sentence why it matters.
+5. If library passages are given and one is relevant, cite it exactly as labelled, like (lib #3).
+   Never cite a document that was not given. If none is relevant, say so.
+6. End with one question the approver should answer before deciding.
+
+Markdown, under 170 words."""
+
+
+def build_agent_review_user_prompt(ticker: str, facts: dict[str, Any], library: str | None) -> str:
+    parts = [f"Stock: {ticker}", "", "Trade facts (computed by code):",
+             f"```json\n{json.dumps(facts, indent=2, default=str)}\n```"]
+    parts += ["", "Library passages:", library] if library else ["", "Library passages: none matched."]
+    return "\n".join(parts)

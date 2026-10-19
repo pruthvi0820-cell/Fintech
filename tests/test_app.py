@@ -60,9 +60,11 @@ def test_page_loads_with_examples_and_no_errors(app):
     app.run()
     assert not app.exception
     assert app.title[0].value == "FinTray"
+    import importlib.util
+    agent = ["Propose a paper trade"] if importlib.util.find_spec("langgraph") and importlib.util.find_spec("langgraph.graph") else []   # optional [agent] extra
     assert [b.label for b in app.button] == ["Add to watchlist", "Load world markets", "Load economic calendar",
                                               "Analyze", "Run candle test", "🔴 SELL by Market", "🔵 BUY by Market", "Load fundamentals",
-                                              "Scan news now", "Save risk rules",
+                                              "Scan news now", "Save risk rules", *agent,
                                               "Import today's trades from Angel One", "Import today's trades from Zerodha", "Add fill",
                                               "Load XM demo account", "How is RELIANCE.NS doing?",
                                               "What is RSI?", "Is my portfolio diversified?",
@@ -798,3 +800,29 @@ def test_smart_money_section_and_layers(app):
                       .split(";\n")[0])
     assert {"PDH", "PDL"} <= {line["label"] for line in cfg["lines"]}
     assert all(not n["text"].startswith("⚡") for n in cfg["notes"])           # sweeps layer not picked
+
+
+def test_agent_review_proposes_and_opens_only_after_approval(app, monkeypatch, tmp_path):
+    pytest.importorskip("langgraph.graph")
+    from datetime import datetime as real_datetime
+    from zoneinfo import ZoneInfo
+    from fin_agent.agents import trade_review
+    from fin_agent.portfolio.paper import PaperBook
+
+    class Tuesday(real_datetime):                           # market open, so the clock rules pass
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime(2026, 10, 20, 11, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
+    monkeypatch.setattr(trade_review, "datetime", Tuesday)
+    app.run()
+    app.text_input(key="agent_reason").set_value("Practising the agent")
+    button(app, "Propose a paper trade").click().run()
+    assert not app.exception
+    plan = next(d.value for d in app.dataframe if "Max loss ₹" in d.value.columns)
+    assert int(plan["Shares"].iloc[0]) >= 1
+    assert any("<script>" not in m.value and "RSI measures momentum" in m.value for m in app.markdown)
+    assert PaperBook(tmp_path / "paper.sqlite3").trades().empty          # nothing before approval
+    button(app, "✅ Approve: open on paper").click().run()
+    assert not app.exception
+    assert any("Paper trade #1 opened" in s.value for s in app.success)
+    assert "human-approved" in PaperBook(tmp_path / "paper.sqlite3").trades()["reason"].iloc[0]

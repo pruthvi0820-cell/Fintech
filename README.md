@@ -60,6 +60,14 @@ Small local models break the "only use the given numbers" rule more often than l
 
 **Thinking (`FIN_AGENT_THINK`, default `false`):** reasoning models like qwen3 think before answering. On a laptop that is slow, and it can use the whole token budget. With `false`, Ollama is sent `reasoning_effort: "none"`, its documented way to turn thinking off through the OpenAI-compatible API. Other providers are sent nothing. Local providers get a 4096-token budget; Anthropic keeps 1200–1500.
 
+## Infrastructure as code (Terraform + Ansible)
+
+The always-on server from `docs/CLOUD.md`, as code: **Terraform** (`infra/terraform/`) creates an AWS server with a
+static IP, an SSH-only firewall, and an encrypted, versioned, private S3 backup bucket reachable only through the
+server's IAM role; **Ansible** (`infra/ansible/playbook.yml`) installs FinTray, its services and a nightly S3 backup.
+Offline `terraform test` (mock AWS provider), `ansible-lint` and `pytest` run in GitHub Actions on every push.
+Full guide: [docs/INFRA.md](docs/INFRA.md).
+
 ## Trade-review agent (LangGraph + RAG)
 
 A LangGraph state graph that proposes a paper trade and **pauses for a human** before anything happens
@@ -99,7 +107,7 @@ In the page: **🧪 Paper trading → 🤖 Agent trade review**. Optional settin
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env        # add ANTHROPIC_API_KEY
-pytest                      # 894 tests, no network needed
+pytest                      # 907 tests, no network needed
 ```
 
 ## Trying it without a broker account

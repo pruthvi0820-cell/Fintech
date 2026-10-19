@@ -1,0 +1,8 @@
+[Unit]
+Description=FinTray backup of journal, notes and library databases to S3
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=__APP_DIR__
+ExecStart=__APP_DIR__/.venv/bin/python scripts/backup_s3.py

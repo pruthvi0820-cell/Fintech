@@ -1,0 +1,133 @@
+---
+# Sets up FinTray on an Ubuntu server: the same steps as deploy/setup_server.sh, as code that can be
+# re-run safely (each task changes only what is missing), plus a nightly S3 backup timer.
+#   cd infra/ansible && ansible-playbook playbook.yml
+- name: Set up FinTray on an Ubuntu server
+  hosts: fintray
+  vars:
+    repo_url: https://github.com/pruthvi0820-cell/Fintech.git
+    repo_branch: claude/fintech-ai-trading-assistant-s5z6tf
+    app_dir: "/home/{{ ansible_user }}/fin_agent_repo"
+    backup_bucket: ""
+    backup_region: ap-south-1
+    service_units:
+      - fintray-app.service
+      - fintray-alerts.service
+    backup_units:
+      - fintray-backup.service
+      - fintray-backup.timer
+    units_dir: "{{ playbook_dir }}/../../deploy"
+    user_env:
+      XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['user_uid'] }}"
+
+  pre_tasks:
+    - name: Refuse to run as root (the services run as your normal user)
+      ansible.builtin.assert:
+        that: ansible_user != "root"
+        fail_msg: "Set ansible_user to your normal login (e.g. ubuntu), not root."
+
+  tasks:
+    - name: Install system packages
+      become: true
+      ansible.builtin.apt:
+        name: [python3, python3-venv, python3-pip, git]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Get the FinTray code
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: "{{ repo_branch }}"
+        update: true
+      notify: Restart FinTray
+
+    - name: Create the Python environment
+      ansible.builtin.command:
+        cmd: python3 -m venv .venv
+        chdir: "{{ app_dir }}"
+        creates: "{{ app_dir }}/.venv/bin/python"
+
+    - name: Install FinTray and its page and cloud extras
+      ansible.builtin.command:
+        cmd: .venv/bin/python -m pip install -e ".[app,cloud]"
+        chdir: "{{ app_dir }}"
+      register: pip_install
+      changed_when: "'Successfully installed' in pip_install.stdout"
+      notify: Restart FinTray
+
+    - name: Create the settings file from the example, never overwriting existing keys
+      ansible.builtin.copy:
+        src: "{{ app_dir }}/.env.example"
+        dest: "{{ app_dir }}/.env"
+        remote_src: true
+        force: false
+        mode: "0600"
+
+    - name: Keep the settings file private
+      ansible.builtin.file:
+        path: "{{ app_dir }}/.env"
+        mode: "0600"
+
+    - name: Point backups at the Terraform bucket
+      ansible.builtin.lineinfile:
+        path: "{{ app_dir }}/.env"
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+      loop:
+        - { key: FIN_AGENT_BACKUP_BUCKET, value: "{{ backup_bucket }}" }
+        - { key: FIN_AGENT_BACKUP_REGION, value: "{{ backup_region }}" }
+      loop_control:
+        label: "{{ item.key }}"
+      when: backup_bucket | length > 0
+
+    - name: Keep the services running after logout
+      become: true
+      ansible.builtin.command:
+        cmd: "loginctl enable-linger {{ ansible_user }}"
+        creates: "/var/lib/systemd/linger/{{ ansible_user }}"
+
+    - name: Create the user services folder
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user }}/.config/systemd/user"
+        state: directory
+        mode: "0755"
+
+    - name: Install the services (listening on 127.0.0.1 only)
+      ansible.builtin.copy:
+        content: "{{ lookup('ansible.builtin.file', units_dir + '/' + item) | replace('__APP_DIR__', app_dir) }}\n"
+        dest: "/home/{{ ansible_user }}/.config/systemd/user/{{ item }}"
+        mode: "0644"
+      loop: "{{ service_units + (backup_units if backup_bucket | length > 0 else []) }}"
+      notify: Restart FinTray
+
+    - name: Start the page and the alerts now and on every boot
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        scope: user
+        enabled: true
+        state: started
+        daemon_reload: true
+      environment: "{{ user_env }}"
+      loop: "{{ service_units }}"
+
+    - name: Schedule the nightly S3 backup
+      ansible.builtin.systemd_service:
+        name: fintray-backup.timer
+        scope: user
+        enabled: true
+        state: started
+        daemon_reload: true
+      environment: "{{ user_env }}"
+      when: backup_bucket | length > 0
+
+  handlers:
+    - name: Restart FinTray
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        scope: user
+        state: restarted
+        daemon_reload: true
+      environment: "{{ user_env }}"
+      loop: "{{ service_units }}"

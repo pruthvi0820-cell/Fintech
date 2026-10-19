@@ -6,6 +6,9 @@ and a cloud server comes with a **static IP**, which brokers require for API ord
 Tags: [Certain] = checked in this project; [Likely] = from provider docs, check the current page;
 [Guessing] = a reasonable estimate.
 
+> Prefer code to clicks? [INFRA.md](INFRA.md) builds the same server with Terraform and Ansible, plus nightly
+> S3 backups.
+
 ## The one safety rule
 
 **FinTray has no login screen.** Anyone who can open the page sees your holdings and journal, and,

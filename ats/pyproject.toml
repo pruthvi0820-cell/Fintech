@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ats-analyzer"
+version = "0.1.0"
+description = "Explainable resume parser and job-description matcher. Shows what an ATS reads from a resume and why."
+requires-python = ">=3.10"
+dependencies = [
+    "pypdf>=4.0",          # PDF text (same library the FinTray package uses)
+    "python-docx>=1.1",    # DOCX paragraphs, tables, headers/footers
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+ats-parse = "ats_analyzer.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]

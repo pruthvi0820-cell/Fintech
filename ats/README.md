@@ -15,7 +15,7 @@ Two things in one package (`ats_analyzer`, separate from FinTray):
 | 2 | Analyst/consulting skill taxonomy, JD parser (required / preferred, years, role family, seniority), SQLite + CSV export | code | done |
 | 2 | Collect 200–300 postings ([data/COLLECTING.md](data/COLLECTING.md)) | **you** | next |
 | 3 | SQL analysis ([sql/analysis.sql](sql/analysis.sql)), Power BI dashboard, one-page insights memo | **you** | |
-| 4 | Resume-vs-JD scoring weighted by the market data | code | |
+| 4 | Explainable resume-vs-JD score, knockout risks, suggestions ranked by market demand | code | done |
 | 5 | Evaluation against human judgement, deploy | code | |
 
 ## Run
@@ -26,6 +26,14 @@ pip install -e ".[dev]"
 python -m ats_analyzer path/to/resume.pdf            # full profile as JSON
 python -m ats_analyzer path/to/resume.pdf --findings-only
 python -m pytest -q && python -m ruff check src tests
+```
+
+Score a resume against a job description (JD as a text file, first line = job title):
+
+```bash
+python -m ats_analyzer.score resume.pdf jd.txt
+python -m ats_analyzer.score resume.pdf jd.txt --db data/market.db   # rank missing skills by demand
+python -m ats_analyzer.score resume.pdf jd.txt --json
 ```
 
 Job-market data:
@@ -52,6 +60,21 @@ Each skill is stored at the strongest level it appears in a posting. A skill und
 "Requirements" heading is *required*. Under "Nice to have", or on a line saying "is a plus", it is
 *preferred*. Anywhere else it is *mentioned*. Postings with no requirement headings are flagged
 (`has_requirement_headings = 0`), so the analysis can say how far to trust required-vs-preferred numbers.
+
+## Scoring
+
+| Component | Max | How it is earned |
+|---|---|---|
+| Required skills | 40 | share of the JD's required skills found anywhere in the resume |
+| Skill evidence | 15 | share of matched skills used in experience or project bullets, not only listed |
+| Experience | 15 | full if your months meet the minimum; 60% if only year-only dates could; otherwise pro rata × 0.8 |
+| Preferred skills | 10 | share of nice-to-have skills found |
+| Title alignment | 10 | recent title in the same role family (full) or sharing a word (half) |
+| Readability | 10 | minus 4 / 2 / 1 per high / medium / low parsing finding |
+
+**Knockout risks** are reported separately, not folded into the score. They cover more than a year short
+of the minimum, or a file with no readable text, because a screening question rejects those applications
+whatever else the resume says. The weights are a starting point. Week 5 checks them against human rankings.
 
 ## Resume pipeline
 

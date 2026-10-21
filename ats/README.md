@@ -21,7 +21,8 @@ Two things in one package (`ats_analyzer`, separate from FinTray):
 
 ## Run
 
-Web app (open http://127.0.0.1:8000 and press "Try a sample"):
+Web app. On Windows, double-click `ats\start.bat`: it sets itself up on the first run and opens the browser.
+Or from a terminal (open http://127.0.0.1:8000 and press "Try a sample"):
 
 ```bash
 cd ats

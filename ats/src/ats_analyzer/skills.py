@@ -93,9 +93,9 @@ def category(skill: str) -> str:
     return SKILLS[skill][0]
 
 
-def find_skills(text: str) -> list[str]:
-    """Canonical skills mentioned in the text, in order of first appearance. A match inside a longer
-    match of another skill does not count: "structured problem solving" is Problem Structuring only."""
+def skill_spans(text: str) -> list[tuple[int, int, str]]:
+    """Every (start, end, skill) match in the text, sorted by position, never overlapping. A match inside
+    a longer match of another skill is dropped: "structured problem solving" is Problem Structuring only."""
     spans: dict[str, list[tuple[int, int]]] = {}
     for name, pat in _patterns():
         if found := [m.span() for m in pat.finditer(text)]:
@@ -107,6 +107,14 @@ def find_skills(text: str) -> list[str]:
         return any(o != name and os <= s and e <= oe and (oe - os) > (e - s)
                    for o, other in spans.items() for os, oe in other)
 
-    hits = {name: min(s for s, e in found if not inside_other(name, s, e))
-            for name, found in spans.items() if any(not inside_other(name, s, e) for s, e in found)}
-    return sorted(hits, key=hits.__getitem__)
+    out, end = [], -1
+    for s, e, name in sorted((s, e, n) for n, found in spans.items() for s, e in found):
+        if s >= end and not inside_other(name, s, e):      # partial overlaps: the earlier match wins
+            out.append((s, e, name))
+            end = e
+    return out
+
+
+def find_skills(text: str) -> list[str]:
+    """Canonical skills mentioned in the text, in order of first appearance."""
+    return list(dict.fromkeys(name for _, _, name in skill_spans(text)))

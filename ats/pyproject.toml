@@ -13,13 +13,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "httpx>=0.27"]        # httpx: FastAPI's TestClient
+web = ["fastapi>=0.110", "uvicorn>=0.29", "python-multipart>=0.0.9"]
 
 [project.scripts]
 ats-parse = "ats_analyzer.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"ats_analyzer.web" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

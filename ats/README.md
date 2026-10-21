@@ -16,13 +16,23 @@ Two things in one package (`ats_analyzer`, separate from FinTray):
 | 2 | Collect 200–300 postings ([data/COLLECTING.md](data/COLLECTING.md)) | **you** | next |
 | 3 | SQL analysis ([sql/analysis.sql](sql/analysis.sql)), Power BI dashboard, one-page insights memo | **you** | |
 | 4 | Explainable resume-vs-JD score, knockout risks, suggestions ranked by market demand | code | done |
+| 4b | Web app: FastAPI API + single-page UI (upload, highlighted JD, score breakdown, timeline) | code | done |
 | 5 | Evaluation against human judgement, deploy | code | |
 
 ## Run
 
+Web app (open http://127.0.0.1:8000 and press "Try a sample"):
+
 ```bash
 cd ats
-pip install -e ".[dev]"
+pip install -e ".[dev,web]"
+python -m ats_analyzer.web
+ATS_MARKET_DB=data/market.db python -m ats_analyzer.web     # rank missing skills by market demand
+```
+
+Command line:
+
+```bash
 python -m ats_analyzer path/to/resume.pdf            # full profile as JSON
 python -m ats_analyzer path/to/resume.pdf --findings-only
 python -m pytest -q && python -m ruff check src tests
@@ -60,6 +70,21 @@ Each skill is stored at the strongest level it appears in a posting. A skill und
 "Requirements" heading is *required*. Under "Nice to have", or on a line saying "is a plus", it is
 *preferred*. Anywhere else it is *mentioned*. Postings with no requirement headings are flagged
 (`has_requirement_headings = 0`), so the analysis can say how far to trust required-vs-preferred numbers.
+
+## Web app
+
+`src/ats_analyzer/web/` holds a FastAPI app (`POST /api/score`, docs at `/api/docs`) that serves a static
+page with no build step. The page is plain HTML, CSS and JavaScript.
+
+- **Privacy:** the upload is read into memory and dropped, never written or logged. The response says
+  whether an email or phone was *found* but never echoes them.
+- **Hardening:** strict Content-Security-Policy (scripts only from the app itself), `nosniff`, no-referrer, `no-store` on API
+  responses, size limits on the file (5 MB) and job description (30,000 chars). Unexpected errors return
+  a generic message, never a stack trace. All resume and JD text is inserted with `textContent`, not `innerHTML`.
+- **UI:** drag-and-drop upload, scanning animation while it works, animated score ring and per-component
+  bars, the job description with matched skills highlighted and missing ones underlined, skill chips
+  (dashed = listed but never used in a bullet), a change checklist, an experience timeline, parsing
+  problems by severity. Light and dark themes, works at phone width, respects reduced motion.
 
 ## Scoring
 

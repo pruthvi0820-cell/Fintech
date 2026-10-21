@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATS Analyzer</title>
+<meta name="description" content="Upload a resume and a job description. See what an ATS reads and why it scores you the way it does.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='6' y='3' width='20' height='26' rx='3' fill='%230f6b74'/%3E%3Crect x='3' y='14' width='26' height='4' rx='2' fill='%23ffd23f'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@600;700;800&family=Source+Sans+3:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="bar-inner">
+    <a class="brand" href="#top" aria-label="ATS Analyzer home">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="6" y="3" width="20" height="26" rx="3"/><rect class="scan" x="3" y="14" width="26" height="4" rx="2"/></svg>
+      <span>ATS Analyzer</span>
+    </a>
+    <nav class="topnav" aria-label="Page">
+      <a href="#analyze">Analyze</a>
+      <a href="#how">How scoring works</a>
+      <button class="icon-btn" id="theme-toggle" type="button" aria-label="Switch between light and dark theme">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+      </button>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" id="top">
+    <p class="eyebrow">Resume screening, explained</p>
+    <h1>Read your resume the way <span class="hl">an ATS does.</span></h1>
+    <p class="lede">Upload a resume and paste a job description. You get a score out of 100, the reason behind every point, and a list of what to change.</p>
+  </section>
+
+  <section class="panel" id="analyze" aria-labelledby="analyze-h">
+    <h2 id="analyze-h" class="visually-hidden">Analyze a resume</h2>
+    <form id="form" class="inputs" novalidate>
+      <div class="input-card">
+        <div class="card-head"><span class="step">1</span><h3>Your resume</h3></div>
+        <label class="dropzone" id="dropzone" for="resume-input">
+          <input id="resume-input" name="resume" type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain">
+          <svg viewBox="0 0 48 48" aria-hidden="true" class="dz-icon"><path d="M14 6h14l10 10v24a2 2 0 0 1-2 2H14a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M28 6v10h10"/><path d="M24 34V22m-5 5 5-5 5 5"/></svg>
+          <span class="dz-title">Drop your resume here</span>
+          <span class="dz-sub">or <u>browse</u> · PDF, DOCX or TXT, up to 5 MB</span>
+        </label>
+        <div class="file-chip" id="file-chip" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/></svg>
+          <span class="file-name" id="file-name"></span>
+          <span class="file-size" id="file-size"></span>
+          <button type="button" class="link-btn" id="file-clear">Remove</button>
+        </div>
+      </div>
+
+      <div class="input-card">
+        <div class="card-head"><span class="step">2</span><h3>The job</h3></div>
+        <label class="field">
+          <span>Job title <em>(optional, defaults to the first line)</em></span>
+          <input id="title" name="title" type="text" maxlength="200" placeholder="e.g. Junior Data Analyst" autocomplete="off">
+        </label>
+        <label class="field grow">
+          <span>Job description</span>
+          <textarea id="jd" name="jd" rows="9" maxlength="30000" placeholder="Paste the full posting, including the Requirements and Nice to have parts."></textarea>
+        </label>
+        <span class="counter" id="jd-count">0 / 30,000</span>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn primary" id="analyze-btn">Analyze resume</button>
+        <button type="button" class="btn ghost" id="sample-btn">Try a sample</button>
+        <p class="privacy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v6c0 4.4 3 7.6 7 9 4-1.4 7-4.6 7-9V6z"/></svg>Read in memory and discarded. Nothing is stored.</p>
+      </div>
+      <p class="form-error" id="form-error" role="alert" hidden></p>
+    </form>
+  </section>
+
+  <section class="scanning" id="scanning" hidden aria-live="polite">
+    <div class="scan-doc" aria-hidden="true">
+      <span></span><span></span><span class="short"></span><span></span><span class="short"></span><span></span>
+      <i class="scan-line"></i>
+    </div>
+    <ol class="scan-steps" id="scan-steps">
+      <li>Reading the file</li>
+      <li>Finding sections and dates</li>
+      <li>Matching skills to the job</li>
+      <li>Scoring</li>
+    </ol>
+  </section>
+
+  <section class="results" id="results" hidden aria-labelledby="results-h">
+    <h2 id="results-h" class="visually-hidden">Results</h2>
+
+    <div class="summary card">
+      <div class="ring-wrap">
+        <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="ring-track" cx="60" cy="60" r="52"/>
+          <circle class="ring-fill" id="ring-fill" cx="60" cy="60" r="52"/>
+        </svg>
+        <div class="ring-label"><strong id="score-num">0</strong><span>/ 100</span></div>
+      </div>
+      <div class="summary-text">
+        <p class="verdict" id="verdict"></p>
+        <h3 id="job-title"></h3>
+        <div class="chips" id="job-chips"></div>
+        <div class="knockouts" id="knockouts" hidden></div>
+        <dl class="stats" id="stats"></dl>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><h3>Where the points came from</h3><span class="hint">Each bar is one part of the score</span></div>
+      <ul class="breakdown" id="breakdown"></ul>
+    </div>
+
+    <div class="split">
+      <div class="card">
+        <div class="card-title"><h3>The job, as the ATS reads it</h3></div>
+        <div class="legend"><span class="mark found">in your resume</span><span class="mark missing">missing</span></div>
+        <div class="jd-view" id="jd-view" tabindex="0" aria-label="Job description with skills highlighted"></div>
+      </div>
+      <div class="card">
+        <div class="card-title"><h3>Skills</h3></div>
+        <div class="skill-groups" id="skill-groups"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><h3>What to change</h3><span class="hint" id="todo-progress"></span></div>
+      <ul class="todo" id="todo"></ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><h3>What the ATS read from your resume</h3></div>
+      <div class="read-grid">
+        <div>
+          <h4>Contact and layout</h4>
+          <ul class="checks" id="checks"></ul>
+          <h4>Sections found</h4>
+          <div class="chips" id="sections"></div>
+        </div>
+        <div>
+          <h4>Experience timeline</h4>
+          <ol class="timeline" id="timeline"></ol>
+        </div>
+      </div>
+      <h4>Parsing problems</h4>
+      <ul class="findings" id="findings"></ul>
+    </div>
+
+    <div class="again"><button type="button" class="btn ghost" id="again-btn">Analyze another</button></div>
+  </section>
+
+  <section class="how" id="how" aria-labelledby="how-h">
+    <h2 id="how-h">How scoring works</h2>
+    <p>Six parts, each with a maximum. The score is their sum, and every part says why it scored what it did.</p>
+    <div class="how-grid">
+      <div><b>40</b><h4>Required skills</h4><p>Share of the job's required skills found anywhere in your resume.</p></div>
+      <div><b>15</b><h4>Skill evidence</h4><p>Matched skills used in an experience or project bullet, not only listed.</p></div>
+      <div><b>15</b><h4>Experience</h4><p>Your months of experience against the minimum the job asks for.</p></div>
+      <div><b>10</b><h4>Preferred skills</h4><p>Share of the nice-to-have skills you have.</p></div>
+      <div><b>10</b><h4>Title alignment</h4><p>Whether your recent title is in the same role family as the job.</p></div>
+      <div><b>10</b><h4>Readability</h4><p>Points lost for anything an ATS parser trips on: no email, tables, image-only PDFs.</p></div>
+    </div>
+    <p class="fine">Knockout risks, such as being well short of the experience asked for, are shown separately. Screening questions reject those applications whatever the score.</p>
+  </section>
+</main>
+
+<footer class="foot"><p>ATS Analyzer · a portfolio project. Scores are a guide to how screening software reads a resume, not a hiring decision.</p></footer>
+</body>
+</html>

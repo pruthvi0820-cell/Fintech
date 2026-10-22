@@ -42,3 +42,14 @@ def test_no_headings_at_all():
 def test_duplicate_sections_are_joined():
     s = split_sections("Skills\nPython\nProjects\nX\nSkills\nSQL")
     assert s.get("skills") == "Python\nSQL" and "duplicate_section" in codes(s)
+
+
+def test_heading_glued_to_next_line_by_pdf_extraction():
+    assert match_heading("EXPERIENCE Freelance Developer — Self-employed Feb 2024 – Present") == (
+        "experience", "Freelance Developer — Self-employed Feb 2024 – Present")
+    assert match_heading("TECHNICAL SKILLS Python, SQL") == ("skills", "Python, SQL")
+    assert match_heading("Experience with enterprise data platforms") is None    # sentence, not a heading
+    assert match_heading("EDUCATION BCA, Bangalore University") == ("education", "BCA, Bangalore University")
+    s = split_sections("Jane Doe\nEXPERIENCE Analyst, Acme Jan 2024 – Present\n• SQL reports\n"
+                       "EDUCATION BCA 2023 – 2026")
+    assert s.order == ["experience", "education"] and s.get("experience").startswith("Analyst, Acme")

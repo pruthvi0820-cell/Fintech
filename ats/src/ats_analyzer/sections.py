@@ -47,10 +47,23 @@ def _key(line: str) -> str:
     return " ".join(_DECORATION.sub("", line).lower().split())
 
 
+_CAPS_PREFIXES = sorted(_LOOKUP, key=len, reverse=True)      # longest first: "SKILLS SUMMARY" before "SKILLS"
+
+
 def match_heading(line: str) -> tuple[str, str] | None:
-    """(canonical, rest-of-line) when the line is a heading, e.g. "Skills: Python, SQL" → ("skills", "Python, SQL")."""
+    """(canonical, rest-of-line) when the line is a heading, e.g. "Skills: Python, SQL" → ("skills", "Python, SQL").
+
+    PDF text extraction sometimes glues an upper-case heading to the line after it
+    ("EXPERIENCE Freelance Developer — …"); an all-caps standard heading at the start of a line counts too."""
     stripped = line.strip()
-    if not stripped or len(stripped) > 60:
+    if not stripped:
+        return None
+    for alias in _CAPS_PREFIXES:
+        caps = alias.upper()
+        if stripped.startswith(caps + " "):
+            if rest := stripped[len(caps):].strip(" :"):
+                return _LOOKUP[alias], rest
+    if len(stripped) > 60:
         return None
     if (name := _LOOKUP.get(_key(stripped))) is not None:
         return name, ""

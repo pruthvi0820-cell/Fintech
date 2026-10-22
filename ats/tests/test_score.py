@@ -153,3 +153,9 @@ def test_earlier_matching_title_gets_partial_credit():
     r = score(parse_text(text, today=TODAY), parse_posting("Junior Data Analyst", JD))
     c = components(r)["title alignment"]
     assert c.points == 7.0 and "earlier title 'Data Analyst Intern'" in c.why
+
+
+def test_evidence_explains_missing_sections():
+    cv = parse_text("Jane Doe\njane@example.com +91 98450 12345\nSkills\nSQL, Excel", today=TODAY)
+    c = components(score(cv, parse_posting("Data Analyst", "Requirements:\n- SQL and Excel")))["skill evidence"]
+    assert c.points == 0 and "no Experience or Projects section was found" in c.why

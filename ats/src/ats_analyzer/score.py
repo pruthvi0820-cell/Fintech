@@ -136,9 +136,17 @@ def score(resume: ParsedResume, jd: JobPosting, market: dict[str, float] | None 
         f"{len(matched_req)} of {len(required)} required skills found{note}" if required
         else "the posting names no skills we recognise")
     matched = matched_req + matched_pref
-    add("skill evidence", _share([s for s in matched if s in used], matched),
-        f"{len(matched) - len(listed_only)} of {len(matched)} matched skills appear in your experience or projects"
-        if matched else "no matched skills to look for")
+    no_evidence_sections = not resume.roles and not any(resume.sections.get(s, "").strip()
+                                                         for s in EVIDENCE_SECTIONS)
+    if matched and no_evidence_sections:
+        why = ("no Experience or Projects section was found in your file, so no skill can count as used. "
+               "Check that those headings are plain text on their own line")
+    elif matched:
+        why = (f"{len(matched) - len(listed_only)} of {len(matched)} matched skills appear "
+               "in your experience or projects")
+    else:
+        why = "no matched skills to look for"
+    add("skill evidence", _share([s for s in matched if s in used], matched), why)
     exp_fraction, exp_why = _experience(resume, jd)
     add("experience", exp_fraction, exp_why)
     add("preferred skills", _share(matched_pref, preferred),

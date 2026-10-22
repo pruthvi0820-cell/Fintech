@@ -5,6 +5,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
+from ats_analyzer import __version__  # noqa: E402
 from ats_analyzer.web.app import MAX_JD_CHARS, app  # noqa: E402
 from conftest import make_docx  # noqa: E402
 from test_score import JD, RESUME  # noqa: E402
@@ -24,7 +25,7 @@ def test_page_and_static_with_security_headers():
     assert r.headers["x-content-type-options"] == "nosniff"
     assert client.get("/static/app.js").status_code == 200
     assert client.get("/static/app.css").status_code == 200
-    assert client.get("/api/health").json() == {"status": "ok"}
+    assert client.get("/api/health").json() == {"status": "ok", "version": __version__}
 
 
 def test_score_text_resume():

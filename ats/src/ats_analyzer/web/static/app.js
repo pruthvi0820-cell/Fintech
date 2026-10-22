@@ -344,5 +344,14 @@ function renderRead(r) {
     : [el("li", { class: "low" }, el("span", { text: "None. An ATS should read this file cleanly." }))]));
 }
 
+async function showVersion() {
+  try {
+    const res = await fetch("/api/health");
+    const { version } = await res.json();
+    if (version) $("version").textContent = `Version ${version}.`;
+  } catch { /* the footer simply stays without a version */ }
+}
+
 initTheme();
 initInputs();
+showVersion();

@@ -13,6 +13,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .. import __version__
 from ..extract import MAX_BYTES, ExtractionError
 from ..jd import parse_posting
 from ..parser import ParsedResume, parse_bytes
@@ -54,7 +55,7 @@ def index() -> FileResponse:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok"}
+    return {"status": "ok", "version": __version__}
 
 
 def _resume_view(p: ParsedResume) -> dict:

@@ -1,4 +1,6 @@
-"""Explainable ATS-style resume analysis. Week 1: extraction and parsing."""
+"""Explainable ATS-style resume analysis."""
+
+__version__ = "2026.10.22"     # bump with each fix so a running app shows which code it has
 
 from .extract import ExtractionError, extract_bytes, extract_file
 from .findings import Finding

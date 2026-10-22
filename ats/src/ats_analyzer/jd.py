@@ -9,15 +9,27 @@ from .skills import find_skills
 REQUIRED, PREFERRED, MENTIONED = "required", "preferred", "mentioned"
 _RANK = {MENTIONED: 0, PREFERRED: 1, REQUIRED: 2}
 
-_REQUIRED_HEADINGS = ("requirements", "required", "must have", "must-have", "qualifications", "what you need",
-                      "what we are looking for", "what we're looking for", "what you'll bring", "what you will bring",
-                      "skills required", "required skills", "key skills", "eligibility", "who you are",
-                      "desired profile", "candidate profile", "skills and experience", "skills & experience")
-_PREFERRED_HEADINGS = ("nice to have", "nice-to-have", "good to have", "good-to-have", "preferred", "bonus",
-                       "desirable", "added advantage", "plus points", "preferred qualifications")
-_OTHER_HEADINGS = ("responsibilities", "key responsibilities", "what you'll do", "what you will do", "the role",
-                   "about us", "about the company", "about the role", "job description", "role overview",
-                   "benefits", "perks", "why join us", "what we offer", "your role")
+# Matched exactly (after trimming decoration), never as a prefix: "Requirements Analysis: Knowledge of …"
+# in a competency list is not a requirements heading.
+_REQUIRED_HEADINGS = ("requirements", "required", "must have", "must-have", "must haves", "qualifications",
+                      "what you need", "what we are looking for", "what we're looking for", "what you'll bring",
+                      "what you will bring", "what you bring", "what you will have", "what you'll have",
+                      "you have", "you will have", "skills required", "required skills", "key skills",
+                      "mandatory skills", "technical skills", "eligibility", "eligibility criteria", "who you are",
+                      "desired profile", "candidate profile", "skills and experience", "skills & experience",
+                      "requirements and qualifications", "qualifications and requirements",
+                      "requirements & qualifications", "minimum qualifications", "basic qualifications",
+                      "required qualifications", "skills and qualifications", "qualifications and skills",
+                      "job requirements", "who we are looking for", "experience and skills")
+_PREFERRED_HEADINGS = ("nice to have", "nice-to-have", "nice to haves", "good to have", "good-to-have",
+                       "good to have skills", "preferred", "preferred skills", "preferred qualifications",
+                       "bonus", "bonus points", "desirable", "added advantage", "plus points", "skills desired",
+                       "desired skills", "additional qualifications")
+_OTHER_HEADINGS = ("responsibilities", "key responsibilities", "your responsibilities", "what you'll do",
+                   "what you will do", "the role", "your role", "about us", "about the company", "about the role",
+                   "about the team", "job description", "description", "job summary", "summary", "overview",
+                   "role overview", "position summary", "role description", "job details", "success measures",
+                   "benefits", "perks", "why join us", "what we offer", "day to day", "location")
 _PREFERRED_INLINE = re.compile(r"\b(?:is a plus|a plus|preferred|good to have|nice to have|added advantage|"
                                r"bonus|desirable|advantageous)\b", re.IGNORECASE)
 _DECOR = re.compile(r"^[\W_]+|[\W_]+$")
@@ -53,7 +65,7 @@ def _heading_kind(line: str) -> str | None:
         return None
     for kind, names in ((PREFERRED, _PREFERRED_HEADINGS), (REQUIRED, _REQUIRED_HEADINGS),
                         (MENTIONED, _OTHER_HEADINGS)):
-        if any(key == n or key.startswith(n + " ") for n in names):
+        if key in names:
             return kind
     return None
 

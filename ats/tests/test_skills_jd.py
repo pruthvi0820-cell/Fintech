@@ -104,3 +104,24 @@ def test_nested_match_counts_once():
     assert find_skills("structured problem solving") == ["Problem Structuring"]
     assert find_skills("structured problem solving; strong problem solving") == ["Problem Structuring",
                                                                                "Problem Solving"]
+
+
+def test_slash_lists_count_but_links_do_not():
+    assert find_skills("SQL/Python, Power BI/Tableau") == ["SQL", "Python", "Power BI", "Tableau"]
+    assert find_skills("github.com/you/sql-dashboard and https://x.io/python") == []
+    assert find_skills("Portfolio: github.com/you/fintech — built in Python") == ["Python"]
+
+
+def test_competency_list_is_not_a_requirements_heading():
+    jd = ("What you will have\nPower BI, SQL/Python, system integration, stakeholder communication.\n"
+          "Skills desired:\nRequirements Analysis: Knowledge of tools and methods of requirement analysis.\n"
+          "System Testing: Knowledge of system testing.")
+    levels, _ = skill_levels(jd)
+    assert {s for s, lvl in levels.items() if lvl == "required"} == {
+        "Power BI", "SQL", "Python", "APIs/System Integration", "Stakeholder Management", "Communication"}
+    assert levels["Requirements Gathering"] == "preferred" and levels["Testing"] == "preferred"
+
+
+def test_requirements_phrased_as_verbs():
+    assert find_skills("Gathered requirements from internal teams") == ["Requirements Gathering"]
+    assert find_skills("Elicit requirements and run UAT") == ["Requirements Gathering", "UAT"]

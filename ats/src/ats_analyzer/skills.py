@@ -18,6 +18,7 @@ SKILLS: dict[str, tuple[str, tuple[str, ...]]] = {
     "VBA": (TOOL, ("vba", "excel macros", "macros")),
     "Power BI": (TOOL, ("power bi", "powerbi", "power-bi")),
     "DAX": (TOOL, ("dax",)),
+    "Power Query": (TOOL, ("power query",)),
     "Tableau": (TOOL, ("tableau",)),
     "Looker": (TOOL, ("looker", "looker studio", "google data studio", "data studio")),
     "Qlik": (TOOL, ("qlik", "qlikview", "qlik sense")),
@@ -47,6 +48,9 @@ SKILLS: dict[str, tuple[str, tuple[str, ...]]] = {
     "Data Modeling": (TECHNIQUE, ("data modeling", "data modelling", "star schema")),
     "Reporting": (TECHNIQUE, ("reporting", "mis reports", "mis reporting", "mis")),
     "Requirements Gathering": (TECHNIQUE, ("requirements gathering", "requirement gathering",
+                                           "gather requirements", "gathered requirements",
+                                           "gathering requirements", "elicit requirements",
+                                           "elicited requirements", "requirement elicitation",
                                            "requirements elicitation", "requirement analysis",
                                            "requirements analysis")),
     "BRD/FRD": (TECHNIQUE, ("brd", "frd", "business requirements document", "functional requirements document",
@@ -55,6 +59,13 @@ SKILLS: dict[str, tuple[str, tuple[str, ...]]] = {
     "Process Mapping": (TECHNIQUE, ("process mapping", "process flows", "process flow", "bpmn", "as-is to-be",
                                     "gap analysis")),
     "UAT": (TECHNIQUE, ("uat", "user acceptance testing")),
+    "Testing": (TECHNIQUE, ("system testing", "software testing", "test cases", "test plans", "test plan",
+                            "automated tests", "unit tests", "unit testing", "integration testing")),
+    "APIs/System Integration": (TECHNIQUE, ("api", "apis", "rest api", "rest apis", "api integration",
+                                            "api integrations", "system integration", "systems integration",
+                                            "middleware")),
+    "Data Engineering": (TECHNIQUE, ("data engineering",)),
+    "Data Governance": (TECHNIQUE, ("data governance", "data quality", "master data management")),
     "Agile": (TECHNIQUE, ("agile", "scrum", "kanban", "sprint planning")),
     "Financial Modeling": (TECHNIQUE, ("financial modeling", "financial modelling", "valuation", "dcf")),
     "Market Research": (TECHNIQUE, ("market research", "market sizing", "competitive analysis",
@@ -77,6 +88,9 @@ SKILLS: dict[str, tuple[str, tuple[str, ...]]] = {
                                "critical thinking")),
 }
 
+# links are not evidence: "github.com/you/sql-dashboard" must not count as SQL, while "SQL/Python" is two skills
+_URL = re.compile(r"(?:https?://|www\.)\S+|\b[\w-]+(?:\.[\w-]+)*\.(?:com|io|org|net|in|co|dev|app|ai|me)/\S*",
+                  re.IGNORECASE)
 _BARE_R = re.compile(r"(?<![\w&/.-])R(?![\w&'/.-])")     # "SQL, R, Python" yes; "R&D", "R.O.I" no
 
 
@@ -85,7 +99,7 @@ def _patterns() -> list[tuple[str, re.Pattern]]:
     out = []
     for name, (_, aliases) in SKILLS.items():
         alt = "|".join(re.escape(a).replace(r"\ ", r"[\s-]+") for a in sorted(aliases, key=len, reverse=True))
-        out.append((name, re.compile(rf"(?<![\w+#/])(?:{alt})(?![\w+#])", re.IGNORECASE)))
+        out.append((name, re.compile(rf"(?<![\w+#])(?:{alt})(?![\w+#])", re.IGNORECASE)))
     return out
 
 
@@ -96,11 +110,16 @@ def category(skill: str) -> str:
 def skill_spans(text: str) -> list[tuple[int, int, str]]:
     """Every (start, end, skill) match in the text, sorted by position, never overlapping. A match inside
     a longer match of another skill is dropped: "structured problem solving" is Problem Structuring only."""
+    urls = [m.span() for m in _URL.finditer(text)]
+
+    def in_url(s: int, e: int) -> bool:
+        return any(us <= s and e <= ue for us, ue in urls)
+
     spans: dict[str, list[tuple[int, int]]] = {}
     for name, pat in _patterns():
-        if found := [m.span() for m in pat.finditer(text)]:
+        if found := [m.span() for m in pat.finditer(text) if not in_url(*m.span())]:
             spans[name] = found
-    if "R" not in spans and (found := [m.span() for m in _BARE_R.finditer(text)]):
+    if "R" not in spans and (found := [m.span() for m in _BARE_R.finditer(text) if not in_url(*m.span())]):
         spans["R"] = found
 
     def inside_other(name: str, s: int, e: int) -> bool:

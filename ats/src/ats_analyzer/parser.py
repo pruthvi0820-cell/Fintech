@@ -116,6 +116,7 @@ def find_roles(experience: str, today: date) -> list[Role]:
             heading_of[i] = (heading, None)
 
     roles: list[Role] = []
+    after_blank = False
     for i, line in enumerate(lines):
         if i in anchors:
             heading, _ = heading_of[i]
@@ -123,10 +124,12 @@ def find_roles(experience: str, today: date) -> list[Role]:
             roles.append(Role(heading=heading, title=title, organisation=org, dates=anchors[i]))
         elif roles and line.strip() and i not in taken:
             text = _BULLET.sub("", line).strip()
-            if _BULLET.match(line) or not roles[-1].bullets:
+            # many PDFs draw bullet symbols as shapes, so the text has none: a blank line starts a new bullet
+            if _BULLET.match(line) or after_blank or not roles[-1].bullets:
                 roles[-1].bullets.append(text)
             else:
                 roles[-1].bullets[-1] += " " + text      # a bullet that wrapped onto the next line
+        after_blank = not line.strip()
     return roles
 
 

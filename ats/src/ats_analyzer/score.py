@@ -89,6 +89,20 @@ def _title_words(title: str) -> set[str]:
     return {w for w in _WORD.findall(title.lower()) if w not in _TITLE_STOP}
 
 
+def _matching_headline(resume: ParsedResume, jd: JobPosting) -> str | None:
+    """A line under the name (not contact details) that names the job: same role family, or at least
+    two of the job title's words."""
+    want = _title_words(jd.title)
+    for line in resume.sections.get("preamble", "").split("\n")[1:6]:
+        line = line.strip()
+        if not line or "@" in line or re.search(r"\d{5}|\.com|linkedin|github", line, re.IGNORECASE):
+            continue
+        family = role_family(line)
+        if (family == jd.role_family and family != "other") or len(_title_words(line) & want) >= 2:
+            return line
+    return None
+
+
 def _experience(resume: ParsedResume, jd: JobPosting) -> tuple[float, str]:
     lo_m, hi_m = resume.experience_months
     lo_y, hi_y = lo_m / 12, hi_m / 12
@@ -164,6 +178,9 @@ def score(resume: ParsedResume, jd: JobPosting, market: dict[str, float] | None 
     elif earlier is not None:       # recruiters search past titles too, but weigh the latest most
         add("title alignment", 0.7, f"your earlier title '{earlier.title}' ({earlier.dates.raw}) matches "
                                     f"'{jd.title}'; your latest, '{recent}', does not")
+    elif headline := _matching_headline(resume, jd):     # recruiter keyword searches hit the headline too
+        add("title alignment", 0.5, f"your headline '{headline}' matches '{jd.title}', but none of your job "
+                                    "titles do; a matching title in Experience counts for more")
     else:
         overlap = _title_words(recent) & _title_words(jd.title)
         add("title alignment", 0.5 if overlap else 0.0,

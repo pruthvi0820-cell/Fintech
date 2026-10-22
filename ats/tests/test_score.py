@@ -159,3 +159,11 @@ def test_evidence_explains_missing_sections():
     cv = parse_text("Jane Doe\njane@example.com +91 98450 12345\nSkills\nSQL, Excel", today=TODAY)
     c = components(score(cv, parse_posting("Data Analyst", "Requirements:\n- SQL and Excel")))["skill evidence"]
     assert c.points == 0 and "no Experience or Projects section was found" in c.why
+
+
+def test_matching_headline_gets_half_title_credit():
+    text = RESUME.replace("ananya.rao@example.com | +91 98450 12345",
+                          "ananya.rao@example.com | +91 98450 12345\nIT Analyst · Data & Integration · Power BI")
+    text = text.replace("Data Analyst Intern | Flipkart", "Operations Intern | Flipkart")
+    c = components(score(parse_text(text, today=TODAY), parse_posting("IT Analyst – Data & Integration", JD)))
+    assert c["title alignment"].points == 5.0 and "your headline 'IT Analyst" in c["title alignment"].why

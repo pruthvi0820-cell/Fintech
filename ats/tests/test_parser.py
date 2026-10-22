@@ -98,3 +98,11 @@ def test_role_headings_from_a_real_layout():
         ("Data Analyst", None),
     ]
     assert roles[0].bullets == ["Built dashboards that presented the company's numbers visually for decision-making."]
+
+
+def test_blank_lines_separate_bullets_when_the_pdf_drops_bullet_symbols():
+    text = ("Experience\nAnalyst — Acme\nJan 2024 – Present\n\nBuilt SQL reports for the sales\nteam every week.\n"
+            "\nAutomated ETL jobs.\nIntern — Globex\nJan 2023 – Dec 2023\n\nCleaned data.")
+    a, b = parse_text(text, today=TODAY).roles
+    assert a.bullets == ["Built SQL reports for the sales team every week.", "Automated ETL jobs."]
+    assert (b.title, b.bullets) == ("Intern", ["Cleaned data."])

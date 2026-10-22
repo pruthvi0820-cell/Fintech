@@ -77,3 +77,24 @@ def test_cli(tmp_path, capsys, sample_text):
 
     assert main([str(tmp_path / "missing.pdf")]) == 2
     assert "error:" in capsys.readouterr().err
+
+
+def test_role_headings_from_a_real_layout():
+    text = ("Experience\n"
+            "Store Advisor (Part-time) — Brightmart, Pune Dec 2024 – Jun 2025\n"
+            "• Built dashboards that presented the\n"
+            "company's numbers visually for decision-making.\n"
+            "Retail Advisor — Northwind Retail, Pune Jan 2023 – Nov 2024\n"
+            "• Ran the floor.\n"
+            "Centre Manager (Consulting) — Fitco Health Pvt Ltd (fit.co) Apr 2026 – Jul 2026\n"
+            "• Ran a centre.\n"
+            "Data Analyst (Jan 2022 – Dec 2022)\n"
+            "• SQL reports.")
+    roles = parse_text(text, today=TODAY).roles
+    assert [(r.title, r.organisation) for r in roles] == [
+        ("Store Advisor (Part-time)", "Brightmart"),
+        ("Retail Advisor", "Northwind Retail"),
+        ("Centre Manager (Consulting)", "Fitco Health Pvt Ltd (fit.co)"),
+        ("Data Analyst", None),
+    ]
+    assert roles[0].bullets == ["Built dashboards that presented the company's numbers visually for decision-making."]

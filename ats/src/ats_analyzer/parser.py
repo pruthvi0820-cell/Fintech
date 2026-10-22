@@ -13,7 +13,9 @@ from .sections import split_sections
 
 _TITLE_WORDS = re.compile(
     r"\b(engineer|developer|analyst|intern|manager|associate|consultant|scientist|lead|architect|designer|"
-    r"specialist|officer|executive|administrator|programmer|trainee|director|head|researcher|tester|sde)\b",
+    r"specialist|officer|executive|administrator|programmer|trainee|director|head|researcher|tester|sde|"
+    r"advisor|adviser|coordinator|representative|assistant|supervisor|strategist|marketer|freelancer|"
+    r"founder|co-founder|owner|accountant|agent|operator|technician|volunteer)\b",
     re.IGNORECASE,
 )
 _SPLIT = re.compile(r"\s+(?:\||@|at|–|—|-)\s+|\s*,\s+|\s*\|\s*", re.IGNORECASE)
@@ -58,6 +60,21 @@ class ParsedResume:
         }
 
 
+def _clean_heading(text: str) -> str:
+    """Drop what removing the dates left behind: "Analyst (Jan 2024 – Present)" → "Analyst", and never
+    the closing bracket of a real name: "Curefit Pvt Ltd (cult.fit)" stays whole."""
+    h = " ".join(re.sub(r"\(\s*\)|\[\s*\]", " ", text).split()).strip(" ,|–—-")
+    if h.endswith("(") or h.endswith("["):
+        h = h[:-1].strip(" ,|–—-")
+    return h
+
+
+def _is_wrapped_text(line: str) -> bool:
+    """A sentence carried over from the bullet above, not a heading: lower-case start or sentence end."""
+    t = line.strip()
+    return bool(t) and (t[0].islower() or t.endswith((".", ";", ",")))
+
+
 def _split_heading(heading: str) -> tuple[str | None, str | None]:
     """'Software Engineer | Acme Corp' → (title, org). Whichever part names a job is the title."""
     parts = [p.strip(" ,|") for p in _SPLIT.split(heading) if p and p.strip(" ,|")]
@@ -82,13 +99,16 @@ def find_roles(experience: str, today: date) -> list[Role]:
     heading_of: dict[int, tuple[str, int | None]] = {}     # anchor line → (heading, line above it used)
     taken: set[int] = set()
     for i, rng in anchors.items():
-        heading = " ".join(lines[i].replace(rng.raw, " ").split()).strip(" ,|–—-()")
+        heading = _clean_heading(lines[i].replace(rng.raw, " "))
         title, org = _split_heading(heading)
+        parts = len([p for p in _SPLIT.split(heading) if p and p.strip(" ,|")]) if heading else 0
         above = i - 1
         while above >= 0 and not lines[above].strip():
             above -= 1
-        if (title is None or org is None) and above >= 0 and above not in anchors and above not in taken \
-                and not _BULLET.match(lines[above]):
+        # the line above joins the heading only when this line names at most one thing and the line
+        # above is a plain heading-like line, not the wrapped end of the previous role's bullet
+        if parts < 2 and (title is None or org is None) and above >= 0 and above not in anchors \
+                and above not in taken and not _BULLET.match(lines[above]) and not _is_wrapped_text(lines[above]):
             text = lines[above].strip()
             heading_of[i] = (f"{text} | {heading}" if heading else text, above)
             taken.add(above)

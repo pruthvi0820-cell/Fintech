@@ -8,7 +8,7 @@ Components and their maximum points (they add up to 100):
     skill evidence    15   share of those matched skills used in experience or projects, not only listed
     experience        15   resume months vs the JD's minimum years
     preferred skills  10   share of the JD's nice-to-have skills found
-    title alignment   10   most recent title in the same role family as the JD
+    title alignment   10   latest title in the JD's role family (full), an earlier one (70%), a shared word (50%)
     readability       10   parse findings (missing email, image-only PDF, tables …) cost points
 
 When a market database is given, missing skills are ranked by how many postings in that role family
@@ -145,11 +145,17 @@ def score(resume: ParsedResume, jd: JobPosting, market: dict[str, float] | None 
         f"{len(matched_pref)} of {len(preferred)} nice-to-have skills found" if preferred
         else "the posting lists no nice-to-have skills")
 
-    recent = next((r.title for r in resume.roles if r.title), None)
+    titled = [r for r in resume.roles if r.title]
+    recent = titled[0].title if titled else None
+    same_family = jd.role_family != "other"
+    earlier = next((r for r in titled[1:] if same_family and role_family(r.title) == jd.role_family), None)
     if recent is None:
         add("title alignment", 0.0, "no job title found in your experience")
-    elif role_family(recent) == jd.role_family and jd.role_family != "other":
+    elif same_family and role_family(recent) == jd.role_family:
         add("title alignment", 1.0, f"'{recent}' is in the same role family as '{jd.title}'")
+    elif earlier is not None:       # recruiters search past titles too, but weigh the latest most
+        add("title alignment", 0.7, f"your earlier title '{earlier.title}' ({earlier.dates.raw}) matches "
+                                    f"'{jd.title}'; your latest, '{recent}', does not")
     else:
         overlap = _title_words(recent) & _title_words(jd.title)
         add("title alignment", 0.5 if overlap else 0.0,

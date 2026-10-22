@@ -144,3 +144,12 @@ def test_render_and_cli(tmp_path, capsys, resume):
     empty = tmp_path / "empty.txt"
     empty.write_text("  \n", encoding="utf-8")
     assert main([str(cv), str(empty)]) == 2
+
+
+def test_earlier_matching_title_gets_partial_credit():
+    text = RESUME.replace("Data Analyst Intern | Flipkart\nJun 2025 – Dec 2025",
+                          "Freelance Developer | Self-employed\nJan 2026 – Present\n• Built websites.\n"
+                          "Data Analyst Intern | Flipkart\nJun 2025 – Dec 2025")
+    r = score(parse_text(text, today=TODAY), parse_posting("Junior Data Analyst", JD))
+    c = components(r)["title alignment"]
+    assert c.points == 7.0 and "earlier title 'Data Analyst Intern'" in c.why

@@ -94,3 +94,8 @@ def test_missing_file(tmp_path):
 
 def test_normalize():
     assert normalize("ﬁnance team\r\n\r\n\r\n item● two") == "finance team\n\n• item• two"
+
+
+def test_bullet_glyph_decoded_as_control_character():
+    text = "Feb 2024 – Present\n\x7f\nGather requirements\nfrom owners\n\x7f\nBuilt ERP\x07 systems"
+    assert normalize(text) == "Feb 2024 – Present\n• Gather requirements\nfrom owners\n• Built ERP systems"

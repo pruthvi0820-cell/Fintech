@@ -5,6 +5,7 @@ and a mislabelled one is refused. Size, page and zip limits stop oversized or ho
 """
 
 import io
+import re
 import unicodedata
 import zipfile
 from dataclasses import dataclass, field
@@ -16,6 +17,9 @@ MAX_BYTES = 5 * 1024 * 1024            # real resumes are well under 1 MB
 MAX_PAGES = 10
 MAX_UNZIPPED_BYTES = 50 * 1024 * 1024  # DOCX is a zip: refuse zip bombs before python-docx opens it
 MIN_CHARS_PER_PAGE = 100               # below this a PDF page is almost certainly an image (scan/export)
+
+
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x80-\x9f]")
 
 
 class ExtractionError(ValueError):
@@ -78,13 +82,18 @@ def sniff(data: bytes) -> str | None:
 def normalize(text: str) -> str:
     """NFKC folds ligatures (ﬁ → fi) and odd spaces; every bullet glyph becomes '•'."""
     text = unicodedata.normalize("NFKC", text).replace("\r\n", "\n").replace("\r", "\n")
-    for glyph in ("●", "▪", "■", "•", "‣", "⁃", "", "", "➢"):
+    # "\x7f" is what some resume builders' bullet glyph decodes to; other control characters are noise
+    for glyph in ("●", "▪", "■", "•", "‣", "⁃", "", "", "➢", "\x7f"):
         text = text.replace(glyph, "•")
+    text = _CONTROL.sub("", text)
     lines = (" ".join(line.split()) for line in text.split("\n"))
     out, blank = [], False
     for line in lines:                  # keep single blank lines (they separate roles), drop runs of them
         if line or not blank:
-            out.append(line)
+            if out and out[-1] == "•" and line:          # a bullet alone on its line belongs to the next one
+                out[-1] = f"• {line}"
+            else:
+                out.append(line)
         blank = not line
     return "\n".join(out).strip()
 

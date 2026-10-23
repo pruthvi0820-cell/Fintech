@@ -27,6 +27,8 @@ from pathlib import Path
 from .ats_profiles import EXACT, PROFILES, AtsProfile, Resolution, resolve
 from .extract import ExtractionError
 from .findings import HIGH, LOW, MEDIUM
+from .knockouts import FAIL, Applicant, check
+from .verdicts import verdict
 from .jd import PREFERRED, REQUIRED, JobPosting, parse_posting, role_family
 from .parser import ParsedResume, parse_file
 from .skills import find_skills, skill_spans
@@ -60,6 +62,8 @@ class ScoreReport:
     suggestions: list[str] = field(default_factory=list)
     wording_mismatch: dict[str, str] = field(default_factory=dict)   # skill → the job's exact words you lack
     ats: dict = field(default_factory=dict)                          # which ATS model scored this, and how
+    knockouts: list[dict] = field(default_factory=list)              # screening-question checks
+    verdict: dict = field(default_factory=dict)                      # the ATS's own result in its own terms
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -147,7 +151,7 @@ def _experience(resume: ParsedResume, jd: JobPosting) -> tuple[float, str]:
 
 
 def score(resume: ParsedResume, jd: JobPosting, market: dict[str, float] | None = None,
-          ats: Resolution | None = None) -> ScoreReport:
+          ats: Resolution | None = None, applicant: Applicant | None = None) -> ScoreReport:
     market = market or {}
     ats = ats or Resolution(PROFILES["generic"], "default", "no company or job link given")
     profile: AtsProfile = ats.profile
@@ -256,15 +260,21 @@ def score(resume: ParsedResume, jd: JobPosting, market: dict[str, float] | None 
                          "would likely filter this application out")
     if any(f.code in ("pdf_no_text", "docx_no_text") for f in resume.findings):
         knockouts.append("the ATS cannot read any text from this file")
+    screening = check(jd.text, jd.min_years, resume.experience_months, applicant)
+    for k in screening:
+        if k.result == FAIL and k.rule != "Years of experience":      # years are covered just above
+            knockouts.append(f"{k.rule.lower()}: the job wants {k.required}, you answered {k.yours}")
 
     report = ScoreReport(
         total=round(sum(c.points for c in comps)),
         components=comps, matched_required=matched_req, missing_required=missing_req,
         matched_preferred=matched_pref, missing_preferred=missing_pref, listed_only=listed_only,
-        knockout_risks=knockouts, wording_mismatch=mismatch,
+        knockout_risks=knockouts, wording_mismatch=mismatch, knockouts=[k.to_dict() for k in screening],
         ats={"key": profile.key, "name": profile.name, "kind": profile.kind, "matching": profile.matching,
              "auto_ranks": profile.auto_ranks, "how": list(profile.how), "resolved_by": ats.by, "detail": ats.detail},
     )
+    report.verdict = verdict(profile.key, report.total, matched_req, missing_req, matched_pref, missing_pref,
+                             exp_fraction == 1.0, screening).to_dict()
     report.suggestions = _suggestions(report, resume, market)
     return report
 
@@ -294,6 +304,9 @@ def render(r: ScoreReport) -> str:
     lines = [f"Score: {r.total}/100" + (f"  ({r.ats['name']} model: {r.ats['detail']})" if r.ats else ""), ""]
     for c in r.components:
         lines.append(f"  {c.name:<17} {c.points:>5.1f} / {c.max_points:<3} {c.why}")
+    if r.verdict:
+        v = r.verdict
+        lines += ["", f"{v['system']}: {v['value']} ({v['meaning']}; {v['confidence']})"]
     if r.knockout_risks:
         lines += ["", "Knockout risks:"] + [f"  ! {k}" for k in r.knockout_risks]
     lines += ["", f"Required skills found:   {', '.join(r.matched_required) or 'none'}",

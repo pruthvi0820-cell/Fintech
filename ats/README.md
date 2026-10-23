@@ -18,6 +18,7 @@ Two things in one package (`ats_analyzer`, separate from FinTray):
 | 4 | Explainable resume-vs-JD score, knockout risks, suggestions ranked by market demand | code | done |
 | 4b | Web app: FastAPI API + single-page UI (upload, highlighted JD, score breakdown, timeline) | code | done |
 | 4c | ATS models per vendor (Workday, Oracle/Taleo, SuccessFactors, iCIMS, Greenhouse, Lever, Ashby, Eightfold …), detected from the job link or company | code | done |
+| 4d | Vendor verdicts (HiredScore grade, Taleo ACE, SuccessFactors rating, Eightfold 0–5) + screening-question checks | code | done |
 | 5 | Evaluation against human judgement, deploy | code | |
 
 ## Run
@@ -104,6 +105,25 @@ The ATS is picked by, in order: your choice in the page → the **job link's dom
 (`myworkdayjobs.com`, `greenhouse.io`, `lever.co`, `taleo.net`, …, the most reliable signal) →
 `data/company_ats.csv` (editable; each row says where the claim came from) → generic.
 CLI: `python -m ats_analyzer.score cv.pdf jd.txt --company Caterpillar` or `--url <job link>` or `--ats workday`.
+
+### Vendor verdicts and screening questions
+
+Each model also reports the ATS's own result, built from the vendor's published rules, with how well
+documented that rule is and a link to the source (`verdicts.py`):
+
+| ATS | Verdict | Rule | Confidence |
+|---|---|---|---|
+| Workday | HiredScore grade A–D | A: all basic + most preferred + above a match threshold; B: all basic; C: most basic; D: not most basic ([Workday docs](https://doc.workday.com/hiredscore/en-us/workday-hiredscore/recruiter-productivity-/reference--candidate-grades.html)) | documented; threshold assumed 75 |
+| Oracle Taleo | Disqualified / Does not meet / Meets requirements / ACE candidate | disqualification questions, required vs asset criteria, ACE threshold ([Oracle docs](https://docs.oracle.com/en/cloud/saas/taleo-enterprise/20b/otrec/candidate-prescreening.html)) | partly; threshold set per employer |
+| SAP SuccessFactors | Disqualified, or applicant rating | required / disqualifier / scored and weighted prescreening questions | partly; weights set per employer |
+| Eightfold | Match score 0–5 in 0.5 steps (≥ 4.0 strong) | Eightfold's published scale; factor weights not public | partly |
+| SmartRecruiters | High / Medium / Low | scale and formula not public | not public |
+| Greenhouse, Lever, Ashby, Avature | No automatic grade | a person reviews | not public |
+
+`knockouts.py` reads the hard filters from the posting (degree, location, office every day, notice
+period, years) and checks them against the applicant's answers. Blank answers are "unknown", never
+guessed. A failed check is a knockout risk, and on Taleo, SuccessFactors and Avature the verdict
+becomes Disqualified.
 
 ## Scoring
 

@@ -104,6 +104,27 @@ h4 { font-size: 13px; font-family: var(--mono); font-weight: 600; text-transform
 .field-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .field select { width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--sunken); padding: 10px 12px; font-weight: 400; font-size: 15px; }
 .field select:focus { outline: none; border-color: var(--accent); }
+.answers { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; background: var(--sunken); }
+.answers summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.answers summary em { font-weight: 400; font-style: normal; color: var(--muted); }
+.answers .field-row { margin-top: 12px; }
+.answers .field input, .answers .field select { background: var(--surface); }
+.vendor { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; padding: 10px 14px; border-radius: 10px;
+  background: var(--sunken); border-left: 4px solid var(--accent); }
+.vendor.good { border-left-color: var(--good); } .vendor.ok { border-left-color: var(--warn); }
+.vendor.weak, .vendor.out { border-left-color: var(--bad); }
+.vendor-system { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.vendor-value { font: 800 22px var(--display); }
+.vendor-meaning { color: var(--muted); font-size: 14px; }
+.vendor-conf { font: 11px var(--mono); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.vendor-basis { margin: 0; padding-left: 20px; display: grid; gap: 4px; color: var(--muted); font-size: 14px; }
+.kos { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.kos li { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 4px 12px; align-items: baseline; padding: 8px 12px;
+  border-radius: 8px; background: var(--sunken); }
+.kos .res { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .06em; text-align: center; padding: 2px 6px; border-radius: 6px; }
+.kos .pass { color: var(--good); background: var(--good-soft); } .kos .fail { color: var(--bad); background: var(--bad-soft); }
+.kos .unknown { color: var(--warn); background: var(--warn-soft); }
+.kos small { grid-column: 2; color: var(--muted); }
 .ats-line { font-size: 14px; color: var(--muted); }
 .ats-line b { color: var(--ink); }
 .ats-how { margin: 0; padding-left: 20px; display: grid; gap: 8px; }

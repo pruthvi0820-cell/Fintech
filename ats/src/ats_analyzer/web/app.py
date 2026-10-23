@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import __version__
 from ..ats_profiles import PROFILES, resolve
 from ..extract import MAX_BYTES, ExtractionError
+from ..knockouts import DEGREES, Applicant
 from ..jd import parse_posting
 from ..parser import ParsedResume, parse_bytes
 from ..score import market_shares, score
@@ -61,9 +62,30 @@ def ats_profiles() -> list[dict]:
     return [{"key": p.key, "name": p.name, "kind": p.kind} for p in PROFILES.values()]
 
 
+@app.get("/api/degrees")
+def degrees() -> list[str]:
+    return list(DEGREES)
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok", "version": __version__}
+
+
+def _yes_no(value: str) -> bool | None:
+    return {"yes": True, "no": False}.get(value.strip().lower())
+
+
+def _applicant(city: str, relocate: str, notice_days: str, degree: str, office_ok: str) -> Applicant:
+    days = notice_days.strip()
+    if days and not (days.isdigit() and int(days) <= 365):
+        raise HTTPException(422, "Notice period must be a number of days between 0 and 365.")
+    deg = degree.strip()
+    if deg and deg not in DEGREES and deg != "Other":
+        raise HTTPException(422, "Unknown degree.")
+    return Applicant(city=" ".join(city.split())[:80] or None, relocate=_yes_no(relocate),
+                     notice_days=int(days) if days else None, degree=deg if deg in DEGREES else None,
+                     office_ok=_yes_no(office_ok))
 
 
 def _resume_view(p: ParsedResume) -> dict:
@@ -84,7 +106,9 @@ def _resume_view(p: ParsedResume) -> dict:
 
 @app.post("/api/score")
 def score_resume(resume: UploadFile = File(...), jd: str = Form(...), title: str = Form(""),
-                 company: str = Form(""), job_url: str = Form(""), ats: str = Form("")) -> dict:
+                 company: str = Form(""), job_url: str = Form(""), ats: str = Form(""),
+                 city: str = Form(""), relocate: str = Form(""), notice_days: str = Form(""),
+                 degree: str = Form(""), office_ok: str = Form("")) -> dict:
     # sync handler: FastAPI runs it in a worker thread, so CPU-bound parsing never blocks the event loop
     data = resume.file.read(MAX_BYTES + 1)
     if not data:
@@ -111,7 +135,7 @@ def score_resume(resume: UploadFile = File(...), jd: str = Form(...), title: str
         raise HTTPException(422, "Unknown ATS choice.")
     resolution = resolve(company.strip()[:MAX_FIELD_CHARS] or None, job_url.strip()[:MAX_FIELD_CHARS] or None,
                          None if choice in ("", "auto") else choice)
-    report = score(parsed, posting, market, resolution)
+    report = score(parsed, posting, market, resolution, _applicant(city, relocate, notice_days, degree, office_ok))
 
     have = set(report.matched_required + report.matched_preferred)
     return {

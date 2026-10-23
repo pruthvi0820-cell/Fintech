@@ -68,6 +68,21 @@ const SECTION = { summary: "Summary", experience: "Experience", education: "Educ
                   publications: "Publications", languages: "Languages", volunteering: "Volunteering", interests: "Interests" };
 
 let file = null;
+const ANSWER_FIELDS = [["city", "a-city"], ["degree", "a-degree"], ["notice_days", "a-notice"],
+                       ["relocate", "a-relocate"], ["office_ok", "a-office"]];
+
+function saveAnswers() {
+  try { localStorage.setItem("ats-answers", JSON.stringify(Object.fromEntries(ANSWER_FIELDS.map(([f, id]) => [f, $(id).value])))); }
+  catch { /* storage blocked: answers just are not remembered */ }
+}
+
+function restoreAnswers() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("ats-answers") || "{}");
+    for (const [f, id] of ANSWER_FIELDS) if (typeof saved[f] === "string") $(id).value = saved[f];
+    if (ANSWER_FIELDS.some(([f]) => saved[f])) $("answers").open = true;
+  } catch { /* nothing saved */ }
+}
 
 // ── theme ────────────────────────────────────────────────────────────────────────────────
 function initTheme() {
@@ -160,6 +175,7 @@ async function analyze() {
   body.append("company", $("company").value.trim());
   body.append("job_url", $("job-url").value.trim());
   body.append("ats", $("ats").value);
+  for (const [field, id] of ANSWER_FIELDS) body.append(field, $(id).value.trim());
 
   const btn = $("analyze-btn");
   btn.disabled = true; btn.textContent = "Analyzing…";
@@ -246,6 +262,22 @@ function render(data) {
                                ats.auto_ranks ? "can rank automatically" : "a person reviews"].filter(Boolean).join(" · ");
   $("ats-how").replaceChildren(...(ats.how || []).map((t) => el("li", { text: t })),
     ...(ats.resolved_by === "company list" || ats.resolved_by === "default" ? [el("li", { text: ats.detail })] : []));
+
+  const v = report.verdict || {};
+  $("vendor").hidden = !v.value;
+  $("vendor").className = `vendor ${v.level || ""}`;
+  $("vendor-system").textContent = v.system || "";
+  $("vendor-value").textContent = v.value || "";
+  $("vendor-meaning").textContent = v.meaning || "";
+  $("vendor-conf").textContent = v.confidence || "";
+  $("vendor-basis").replaceChildren(...(v.basis || []).map((t) => el("li", { text: t })));
+  $("vendor-source").replaceChildren(...(v.source ? ["Rule source: ", el("a", { href: v.source, target: "_blank", rel: "noopener noreferrer", text: new URL(v.source).hostname })] : []));
+  const koLabel = { pass: "Pass", fail: "Fail", unknown: "Check" };
+  $("kos").replaceChildren(...((report.knockouts || []).length ? report.knockouts.map((k) => el("li", {},
+      el("span", { class: `res ${k.result}`, text: koLabel[k.result] || k.result }),
+      el("span", { text: `${k.rule}: the job wants ${k.required}; you: ${k.yours}` }),
+      k.note ? el("small", { text: k.note }) : null))
+    : [el("li", { class: "empty", text: "The posting states no degree, location, office or notice-period requirement we can check." })]));
 
   const ko = $("knockouts");
   ko.hidden = !report.knockout_risks.length;
@@ -367,6 +399,14 @@ async function loadAtsOptions() {
   } catch { /* the picker keeps only "Detect"; scoring still works */ }
 }
 
+async function loadDegrees() {
+  try {
+    const res = await fetch("/api/degrees");
+    $("a-degree").append(...(await res.json()).map((d) => el("option", { value: d, text: d })), el("option", { value: "Other", text: "Other" }));
+  } catch { /* degree stays unanswered */ }
+  restoreAnswers();
+}
+
 async function showVersion() {
   try {
     const res = await fetch("/api/health");
@@ -378,4 +418,6 @@ async function showVersion() {
 initTheme();
 initInputs();
 loadAtsOptions();
+loadDegrees();
+for (const [, id] of ANSWER_FIELDS) $(id).addEventListener("change", saveAnswers);
 showVersion();

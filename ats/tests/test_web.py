@@ -101,3 +101,24 @@ def test_unknown_ats_choice_is_rejected():
     r = client.post("/api/score", files={"resume": ("cv.txt", RESUME.encode(), "text/plain")},
                     data={"jd": JD, "ats": "not-a-vendor"})
     assert r.status_code == 422 and "Unknown ATS" in r.json()["detail"]
+
+
+def test_screening_answers_flow_into_verdict_and_knockouts():
+    jd = JD + "\nLocation: Pune\nEducation: B.Tech\nThis role is 5 days a week in the office"
+    r = client.post("/api/score", files={"resume": ("cv.txt", RESUME.encode(), "text/plain")},
+                    data={"jd": jd, "title": "Junior Data Analyst", "ats": "oracle", "city": "Bengaluru",
+                          "relocate": "no", "degree": "BBA", "office_ok": "yes", "notice_days": "0"}).json()
+    kos = {k["rule"]: k["result"] for k in r["report"]["knockouts"]}
+    assert kos == {"Years of experience": "fail", "Degree": "fail", "Location": "fail",
+                   "Works from office every day": "pass"}                  # sample JD asks 1-3 years, resume has 0.6
+    assert r["report"]["verdict"]["value"] == "Disqualified"
+    assert client.get("/api/degrees").json()[0] == "BE/BTech"
+
+
+@pytest.mark.parametrize("field, value, message", [
+    ("notice_days", "ninety", "Notice period"), ("notice_days", "999", "Notice period"), ("degree", "PhD?", "degree"),
+])
+def test_bad_screening_answers_are_rejected(field, value, message):
+    r = client.post("/api/score", files={"resume": ("cv.txt", RESUME.encode(), "text/plain")},
+                    data={"jd": JD, field: value})
+    assert r.status_code == 422 and message.lower() in r.json()["detail"].lower()

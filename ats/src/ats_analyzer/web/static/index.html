@@ -82,6 +82,21 @@
           <textarea id="jd" name="jd" rows="9" maxlength="30000" placeholder="Paste the full posting, including the Requirements and Nice to have parts."></textarea>
         </label>
         <span class="counter" id="jd-count">0 / 30,000</span>
+        <details class="answers" id="answers">
+          <summary>Your answers to screening questions <em>(optional, remembered on this device)</em></summary>
+          <div class="field-row">
+            <label class="field"><span>Your city</span>
+              <input id="a-city" type="text" maxlength="80" placeholder="e.g. Bengaluru" autocomplete="address-level2"></label>
+            <label class="field"><span>Degree</span>
+              <select id="a-degree"><option value="">Not answered</option></select></label>
+            <label class="field"><span>Notice period (days)</span>
+              <input id="a-notice" type="number" min="0" max="365" inputmode="numeric" placeholder="e.g. 0"></label>
+            <label class="field"><span>Willing to relocate</span>
+              <select id="a-relocate"><option value="">Not answered</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+            <label class="field"><span>OK working from office every day</span>
+              <select id="a-office"><option value="">Not answered</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+          </div>
+        </details>
       </div>
 
       <div class="actions">
@@ -119,6 +134,12 @@
       </div>
       <div class="summary-text">
         <p class="verdict" id="verdict"></p>
+        <div class="vendor" id="vendor" hidden>
+          <span class="vendor-system" id="vendor-system"></span>
+          <strong class="vendor-value" id="vendor-value"></strong>
+          <span class="vendor-meaning" id="vendor-meaning"></span>
+          <span class="vendor-conf" id="vendor-conf"></span>
+        </div>
         <h3 id="job-title"></h3>
         <div class="chips" id="job-chips"></div>
         <div class="knockouts" id="knockouts" hidden></div>
@@ -130,6 +151,10 @@
     <div class="card ats-card" id="ats-card">
       <div class="card-title"><h3 id="ats-name">How this ATS screens</h3><span class="hint" id="ats-kind"></span></div>
       <ul class="ats-how" id="ats-how"></ul>
+      <ul class="vendor-basis" id="vendor-basis"></ul>
+      <p class="fine" id="vendor-source"></p>
+      <h4>Screening questions</h4>
+      <ul class="kos" id="kos"></ul>
       <p class="fine">A model of how this kind of system is documented to work. Vendors do not publish their scoring and every employer configures it differently, so this is not the company's real score.</p>
     </div>
 

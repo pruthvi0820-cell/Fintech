@@ -41,7 +41,7 @@ phpguard check-site https://www.your-company.example --i-own-this-site
 phpguard logs /var/log/nginx/access.log --canary /db_backup.sql --canary /old-admin/ --blocklist /etc/phpguard/block.txt
 ```
 
-Try it on the bundled sample company (4 servers, one attacked access log):
+Try it on the bundled sample company (4 servers, one attacked access log). [DEMO.md](DEMO.md) shows the real output:
 
 ```bash
 phpguard audit samples/*.json

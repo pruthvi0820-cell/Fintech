@@ -33,6 +33,20 @@ jobs:
       - run: python -m ruff check src tests
       - run: python -m pytest -q
 
+  phpguard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: phpguard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: python -m ruff check src tests
+      - run: python -m pytest -q
+
   terraform:
     runs-on: ubuntu-latest
     defaults:

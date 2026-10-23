@@ -1,0 +1,27 @@
+{
+  "updated": "2026-10-23",
+  "branches": {
+    "8.5": {"security_until": "2029-12-31"},
+    "8.4": {"security_until": "2028-12-31"},
+    "8.3": {"security_until": "2027-12-31"},
+    "8.2": {"security_until": "2026-12-31"},
+    "8.1": {"security_until": "2025-12-31"},
+    "8.0": {"security_until": "2023-11-26"},
+    "7.4": {"security_until": "2022-11-28"}
+  },
+  "advisories": [
+    {
+      "id": "PHP2Shell",
+      "cves": ["CVE-2026-109618", "CVE-2026-109619"],
+      "severity": "critical",
+      "summary": "Unauthenticated remote code execution in the PHP runtime, affecting PHP installations that serve web requests.",
+      "published": "2026-10-21",
+      "fixed": {"8.5": "8.5.12", "8.4": "8.4.27", "8.3": "8.3.36", "8.2": "8.2.35"},
+      "affects_from": "5.0.0",
+      "references": [
+        "https://www.cisa.gov/news-events/alerts/2026/10/21/critical-vulnerabilities-php-require-immediate-patching",
+        "https://cert.europa.eu/publications/security-advisories/2026-018"
+      ]
+    }
+  ]
+}

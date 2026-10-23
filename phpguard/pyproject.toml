@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phpguard"
+version = "0.1.0"
+description = "Defensive toolkit for PHP servers you run: patch status, php.ini hardening, leak self-check, log watching with canaries."
+requires-python = ">=3.10"
+dependencies = []          # standard library only, so it runs on any server as-is
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+phpguard = "phpguard.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+phpguard = ["advisories.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]         # tests quote whole access-log lines; wrapping them would hide what they check

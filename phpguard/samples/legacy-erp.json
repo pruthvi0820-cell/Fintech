@@ -1,0 +1,32 @@
+{
+  "host": "legacy-erp",
+  "collected_at": "2026-10-23T09:00:00+00:00",
+  "os": {
+    "id": "ubuntu",
+    "version": "22.04"
+  },
+  "internet_facing": false,
+  "criticality": "high",
+  "php": {
+    "version": "7.4.33",
+    "package_version": null,
+    "sapi": "apache2handler",
+    "ini_source": "sample",
+    "ini": {
+      "expose_php": "1",
+      "display_errors": "1",
+      "log_errors": "1",
+      "allow_url_include": "0",
+      "allow_url_fopen": "1",
+      "disable_functions": "",
+      "open_basedir": "",
+      "session.cookie_httponly": "0",
+      "session.cookie_secure": "0",
+      "session.use_strict_mode": "0",
+      "session.cookie_samesite": "",
+      "cgi.fix_pathinfo": "1",
+      "file_uploads": "1",
+      "upload_max_filesize": "64M"
+    }
+  }
+}

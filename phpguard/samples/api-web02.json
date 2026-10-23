@@ -1,0 +1,32 @@
+{
+  "host": "api-web02",
+  "collected_at": "2026-10-23T09:00:00+00:00",
+  "os": {
+    "id": "ubuntu",
+    "version": "22.04"
+  },
+  "internet_facing": true,
+  "criticality": "high",
+  "php": {
+    "version": "8.4.27",
+    "package_version": null,
+    "sapi": "fpm-fcgi",
+    "ini_source": "sample",
+    "ini": {
+      "expose_php": "0",
+      "display_errors": "0",
+      "log_errors": "1",
+      "allow_url_include": "0",
+      "allow_url_fopen": "0",
+      "disable_functions": "exec,shell_exec,system,passthru,proc_open,popen",
+      "open_basedir": "/var/www/app:/tmp",
+      "session.cookie_httponly": "1",
+      "session.cookie_secure": "1",
+      "session.use_strict_mode": "1",
+      "session.cookie_samesite": "Lax",
+      "cgi.fix_pathinfo": "0",
+      "file_uploads": "1",
+      "upload_max_filesize": "8M"
+    }
+  }
+}

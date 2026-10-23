@@ -70,11 +70,27 @@ def _raise(a: Attacker, sev: str) -> None:
         a.severity = sev
 
 
+def classify(target: str, canaries: set[str] | frozenset[str] = frozenset()) -> list[tuple[str, str]]:
+    """(rule, severity) for every attack pattern in one request target ("/path?query"). Shared by the log
+    watcher and the live firewall, so both agree on what an attack looks like."""
+    decoded = unquote_plus(unquote_plus(target))         # attackers double-encode to slip past filters
+    path = decoded.split("?", 1)[0]
+    hits: list[tuple[str, str]] = []
+    if canaries and path.lower().rstrip("/") in canaries:
+        hits.append(("canary", CRITICAL))
+    hits += [(name, sev) for name, sev, _, test in RULES if test(path, target if name == "php-cgi" else decoded)]
+    return hits
+
+
+def canary_set(canaries) -> frozenset[str]:
+    return frozenset(c.lower().rstrip("/") for c in canaries)
+
+
 def scan(lines, canaries: tuple[str, ...] = DEFAULT_CANARIES) -> LogReport:
     report = LogReport()
     seen: dict[str, Attacker] = {}
     not_found: dict[str, int] = defaultdict(int)
-    canary_set = {c.lower().rstrip("/") for c in canaries}
+    canaries_norm = canary_set(canaries)
 
     for raw in lines:
         report.lines += 1
@@ -83,12 +99,7 @@ def scan(lines, canaries: tuple[str, ...] = DEFAULT_CANARIES) -> LogReport:
             report.unparsed += 1
             continue
         ip, target, status = m["ip"], m["target"], int(m["status"])
-        decoded = unquote_plus(unquote_plus(target))         # attackers double-encode to slip past filters
-        path = decoded.split("?", 1)[0]
-        hits: list[tuple[str, str]] = []
-        if path.lower().rstrip("/") in canary_set:
-            hits.append(("canary", CRITICAL))
-        hits += [(name, sev) for name, sev, _, test in RULES if test(path, target if name == "php-cgi" else decoded)]
+        hits = classify(target, canaries_norm)
         if status == 404:
             not_found[ip] += 1
         if not hits:

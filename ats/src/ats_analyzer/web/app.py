@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
+from ..ats_profiles import PROFILES, resolve
 from ..extract import MAX_BYTES, ExtractionError
 from ..jd import parse_posting
 from ..parser import ParsedResume, parse_bytes
@@ -23,6 +24,7 @@ from ..skills import category, skill_spans
 STATIC = Path(__file__).parent / "static"
 MAX_JD_CHARS = 30_000
 MAX_TITLE_CHARS = 200
+MAX_FIELD_CHARS = 500
 
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; "
        "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
@@ -53,6 +55,12 @@ def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
 
 
+@app.get("/api/ats")
+def ats_profiles() -> list[dict]:
+    """The ATS models the page can offer, in a stable order."""
+    return [{"key": p.key, "name": p.name, "kind": p.kind} for p in PROFILES.values()]
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok", "version": __version__}
@@ -75,7 +83,8 @@ def _resume_view(p: ParsedResume) -> dict:
 
 
 @app.post("/api/score")
-def score_resume(resume: UploadFile = File(...), jd: str = Form(...), title: str = Form("")) -> dict:
+def score_resume(resume: UploadFile = File(...), jd: str = Form(...), title: str = Form(""),
+                 company: str = Form(""), job_url: str = Form(""), ats: str = Form("")) -> dict:
     # sync handler: FastAPI runs it in a worker thread, so CPU-bound parsing never blocks the event loop
     data = resume.file.read(MAX_BYTES + 1)
     if not data:
@@ -97,7 +106,12 @@ def score_resume(resume: UploadFile = File(...), jd: str = Form(...), title: str
     posting = parse_posting(title, jd)
     db = os.environ.get("ATS_MARKET_DB")
     market = market_shares(db, posting.role_family) if db else {}
-    report = score(parsed, posting, market)
+    choice = ats.strip().lower()
+    if choice and choice != "auto" and choice not in PROFILES:
+        raise HTTPException(422, "Unknown ATS choice.")
+    resolution = resolve(company.strip()[:MAX_FIELD_CHARS] or None, job_url.strip()[:MAX_FIELD_CHARS] or None,
+                         None if choice in ("", "auto") else choice)
+    report = score(parsed, posting, market, resolution)
 
     have = set(report.matched_required + report.matched_preferred)
     return {

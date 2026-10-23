@@ -17,6 +17,7 @@ Two things in one package (`ats_analyzer`, separate from FinTray):
 | 3 | SQL analysis ([sql/analysis.sql](sql/analysis.sql)), Power BI dashboard, one-page insights memo | **you** | |
 | 4 | Explainable resume-vs-JD score, knockout risks, suggestions ranked by market demand | code | done |
 | 4b | Web app: FastAPI API + single-page UI (upload, highlighted JD, score breakdown, timeline) | code | done |
+| 4c | ATS models per vendor (Workday, Oracle/Taleo, SuccessFactors, iCIMS, Greenhouse, Lever, Ashby, Eightfold …), detected from the job link or company | code | done |
 | 5 | Evaluation against human judgement, deploy | code | |
 
 ## Run
@@ -86,6 +87,23 @@ page with no build step. The page is plain HTML, CSS and JavaScript.
   bars, the job description with matched skills highlighted and missing ones underlined, skill chips
   (dashed = listed but never used in a bullet), a change checklist, an experience timeline, parsing
   problems by severity. Light and dark themes, works at phone width, respects reduced motion.
+
+## ATS models
+
+`ats_profiles.py` models how each ATS product is documented to screen. **It is not any company's real
+score.** Vendors do not publish their scoring, and every employer configures its system differently.
+
+| Model | Matching | Ranks automatically | What changes |
+|---|---|---|---|
+| Workday, SmartRecruiters, Eightfold | related skills count | yes (when enabled) | more weight on proven, recent skills and title |
+| Oracle/Taleo, SuccessFactors, iCIMS, Avature | the job's exact words, or the plain skill name | mostly keyword search | keyword coverage weighs most; tables cost double on older parsers |
+| Greenhouse, Lever | exact words (recruiter search) | no, a person reviews | models a recruiter's keyword search and skim |
+| Ashby, in-house, generic | related skills | varies | balanced weights |
+
+The ATS is picked by, in order: your choice in the page → the **job link's domain**
+(`myworkdayjobs.com`, `greenhouse.io`, `lever.co`, `taleo.net`, …, the most reliable signal) →
+`data/company_ats.csv` (editable; each row says where the claim came from) → generic.
+CLI: `python -m ats_analyzer.score cv.pdf jd.txt --company Caterpillar` or `--url <job link>` or `--ats workday`.
 
 ## Scoring
 

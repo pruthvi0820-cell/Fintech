@@ -81,3 +81,23 @@ def test_market_db_from_env(tmp_path, monkeypatch):
     body = post().json()
     assert body["market_used"] is True
     assert "(100% of similar postings ask for it)" in body["report"]["suggestions"][0]
+
+
+def test_ats_list_and_company_detection():
+    keys = [p["key"] for p in client.get("/api/ats").json()]
+    assert keys[0] == "generic" and "workday" in keys and "greenhouse" in keys
+    r = client.post("/api/score", files={"resume": ("cv.txt", RESUME.encode(), "text/plain")},
+                    data={"jd": JD, "title": "Junior Data Analyst", "company": "Caterpillar"}).json()
+    assert r["report"]["ats"]["key"] == "workday" and r["report"]["ats"]["resolved_by"] == "company list"
+    r = client.post("/api/score", files={"resume": ("cv.txt", RESUME.encode(), "text/plain")},
+                    data={"jd": JD, "company": "Caterpillar", "job_url": "https://boards.greenhouse.io/x/jobs/1"}).json()
+    assert r["report"]["ats"]["key"] == "greenhouse" and r["report"]["ats"]["resolved_by"] == "job link"
+    r = client.post("/api/score", files={"resume": ("cv.txt", RESUME.encode(), "text/plain")},
+                    data={"jd": JD, "company": "Caterpillar", "ats": "generic"}).json()
+    assert r["report"]["ats"]["key"] == "generic" and r["report"]["ats"]["resolved_by"] == "your choice"
+
+
+def test_unknown_ats_choice_is_rejected():
+    r = client.post("/api/score", files={"resume": ("cv.txt", RESUME.encode(), "text/plain")},
+                    data={"jd": JD, "ats": "not-a-vendor"})
+    assert r.status_code == 422 and "Unknown ATS" in r.json()["detail"]

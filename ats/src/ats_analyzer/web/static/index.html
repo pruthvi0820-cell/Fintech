@@ -63,6 +63,20 @@
           <span>Job title <em>(optional, defaults to the first line)</em></span>
           <input id="title" name="title" type="text" maxlength="200" placeholder="e.g. Junior Data Analyst" autocomplete="off">
         </label>
+        <div class="field-row">
+          <label class="field">
+            <span>Company <em>(optional)</em></span>
+            <input id="company" name="company" type="text" maxlength="200" placeholder="e.g. Caterpillar" autocomplete="off">
+          </label>
+          <label class="field">
+            <span>Screen as</span>
+            <select id="ats" name="ats"><option value="auto">Detect from company or link</option></select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Job link <em>(optional, the most reliable way to detect the ATS)</em></span>
+          <input id="job-url" name="job_url" type="url" maxlength="500" placeholder="https://…myworkdayjobs.com/…" autocomplete="off">
+        </label>
         <label class="field grow">
           <span>Job description</span>
           <textarea id="jd" name="jd" rows="9" maxlength="30000" placeholder="Paste the full posting, including the Requirements and Nice to have parts."></textarea>
@@ -108,8 +122,15 @@
         <h3 id="job-title"></h3>
         <div class="chips" id="job-chips"></div>
         <div class="knockouts" id="knockouts" hidden></div>
+        <p class="ats-line" id="ats-line"></p>
         <dl class="stats" id="stats"></dl>
       </div>
+    </div>
+
+    <div class="card ats-card" id="ats-card">
+      <div class="card-title"><h3 id="ats-name">How this ATS screens</h3><span class="hint" id="ats-kind"></span></div>
+      <ul class="ats-how" id="ats-how"></ul>
+      <p class="fine">A model of how this kind of system is documented to work. Vendors do not publish their scoring and every employer configures it differently, so this is not the company's real score.</p>
     </div>
 
     <div class="card">

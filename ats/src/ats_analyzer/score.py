@@ -24,11 +24,12 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 
+from .ats_profiles import EXACT, PROFILES, AtsProfile, Resolution, resolve
 from .extract import ExtractionError
 from .findings import HIGH, LOW, MEDIUM
 from .jd import PREFERRED, REQUIRED, JobPosting, parse_posting, role_family
 from .parser import ParsedResume, parse_file
-from .skills import find_skills
+from .skills import find_skills, skill_spans
 
 WEIGHTS = {"required skills": 40, "skill evidence": 15, "experience": 15, "preferred skills": 10,
            "title alignment": 10, "readability": 10}
@@ -57,6 +58,8 @@ class ScoreReport:
     listed_only: list[str]                       # matched, but only in a skills list: no proof of use
     knockout_risks: list[str]
     suggestions: list[str] = field(default_factory=list)
+    wording_mismatch: dict[str, str] = field(default_factory=dict)   # skill → the job's exact words you lack
+    ats: dict = field(default_factory=dict)                          # which ATS model scored this, and how
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -103,6 +106,30 @@ def _matching_headline(resume: ParsedResume, jd: JobPosting) -> str | None:
     return None
 
 
+def _literal_terms(jd: JobPosting) -> dict[str, set[str]]:
+    """skill → the exact phrases the job uses for it ("Advanced Excel", "pivot tables")."""
+    out: dict[str, set[str]] = {}
+    for start, end, skill in skill_spans(jd.text):
+        out.setdefault(skill, set()).add(" ".join(jd.text[start:end].lower().split()))
+    return out
+
+
+def _has_phrase(text: str, phrase: str) -> bool:
+    body = re.escape(phrase).replace(r"\ ", r"[\s-]+")
+    return re.search(r"(?<![\w+#])" + body + r"(?![\w+#])", text, re.I) is not None
+
+
+def _recent_use(resume: ParsedResume) -> set[str]:
+    """Skills used in projects or in a role that ended within the last two years."""
+    recent = set(find_skills(resume.sections.get("projects", "")))
+    now = resume.today.year * 12 + resume.today.month - 1
+    for r in resume.roles:
+        _, end = r.dates.end.bounds(resume.today)
+        if now - end <= 24:
+            recent |= set(find_skills("\n".join(r.bullets)))
+    return recent
+
+
 def _experience(resume: ParsedResume, jd: JobPosting) -> tuple[float, str]:
     lo_m, hi_m = resume.experience_months
     lo_y, hi_y = lo_m / 12, hi_m / 12
@@ -119,13 +146,29 @@ def _experience(resume: ParsedResume, jd: JobPosting) -> tuple[float, str]:
     return round(min(1.0, hi_y / need) * 0.8, 2), f"you have {hi_y:.1f} years against {need:g} asked"
 
 
-def score(resume: ParsedResume, jd: JobPosting, market: dict[str, float] | None = None) -> ScoreReport:
+def score(resume: ParsedResume, jd: JobPosting, market: dict[str, float] | None = None,
+          ats: Resolution | None = None) -> ScoreReport:
     market = market or {}
+    ats = ats or Resolution(PROFILES["generic"], "default", "no company or job link given")
+    profile: AtsProfile = ats.profile
+    weights = profile.weights
     full_text = "\n".join(resume.sections.values())
     have = set(find_skills(full_text))
     evidence_text = "\n".join(resume.sections.get(s, "") for s in EVIDENCE_SECTIONS)
     evidence_text += "\n" + "\n".join(b for r in resume.roles for b in r.bullets)
     used = set(find_skills(evidence_text))
+
+    mismatch: dict[str, str] = {}
+    if profile.matching == EXACT:      # keyword search: only the job's own words count, not synonyms
+        terms = _literal_terms(jd)
+        for skill in list(have):
+            phrases = terms.get(skill)
+            # a recruiter's search uses the job's own phrase or the plain skill name ("communication")
+            if phrases and not any(_has_phrase(full_text, ph) for ph in phrases | {skill.lower()}):
+                have.discard(skill)
+                mismatch[skill] = sorted(phrases, key=len)[0]
+        used = {s for s in used if s in have
+                and any(_has_phrase(evidence_text, ph) for ph in terms.get(s, set()) | {s.lower()})}
 
     required = [s for s, lvl in jd.skills.items() if lvl == REQUIRED]
     preferred = [s for s, lvl in jd.skills.items() if lvl == PREFERRED]
@@ -144,7 +187,7 @@ def score(resume: ParsedResume, jd: JobPosting, market: dict[str, float] | None 
     comps: list[Component] = []
 
     def add(name: str, fraction: float, why: str) -> None:
-        comps.append(Component(name, round(WEIGHTS[name] * max(0.0, min(1.0, fraction)), 1), WEIGHTS[name], why))
+        comps.append(Component(name, round(weights[name] * max(0.0, min(1.0, fraction)), 1), weights[name], why))
 
     add("required skills", _share(matched_req, required),
         f"{len(matched_req)} of {len(required)} required skills found{note}" if required
@@ -160,7 +203,14 @@ def score(resume: ParsedResume, jd: JobPosting, market: dict[str, float] | None 
                "in your experience or projects")
     else:
         why = "no matched skills to look for"
-    add("skill evidence", _share([s for s in matched if s in used], matched), why)
+    evidence = _share([s for s in matched if s in used], matched)
+    if profile.recency and matched:        # skills proven only in roles that ended 2+ years ago count half
+        recent = _recent_use(resume)
+        old_only = [s for s in matched if s in used and s not in recent]
+        evidence -= 0.5 * len(old_only) / len(matched)
+        if old_only:
+            why += f"; {', '.join(old_only[:3])} only in roles that ended over two years ago (counted half)"
+    add("skill evidence", evidence, why)
     exp_fraction, exp_why = _experience(resume, jd)
     add("experience", exp_fraction, exp_why)
     add("preferred skills", _share(matched_pref, preferred),
@@ -187,8 +237,16 @@ def score(resume: ParsedResume, jd: JobPosting, market: dict[str, float] | None 
             f"'{recent}' shares {', '.join(sorted(overlap))} with '{jd.title}'" if overlap
             else f"'{recent}' does not match '{jd.title}'; recruiters often filter on title first")
 
-    cost = sum(FINDING_COST.get(f.severity, 0) for f in resume.findings)
-    add("readability", 1 - cost / WEIGHTS["readability"],
+    def finding_cost(f) -> int:
+        c = FINDING_COST.get(f.severity, 0)
+        if f.code == "docx_tables":
+            c *= profile.table_cost
+        if f.code == "contact_in_header" and profile.reads_header_footer:
+            c = FINDING_COST[LOW]
+        return c
+
+    cost = sum(finding_cost(f) for f in resume.findings)
+    add("readability", 1 - cost / weights["readability"],
         "no parsing problems" if not resume.findings
         else f"{len(resume.findings)} parsing problem(s): {', '.join(f.code for f in resume.findings[:4])}")
 
@@ -203,7 +261,9 @@ def score(resume: ParsedResume, jd: JobPosting, market: dict[str, float] | None 
         total=round(sum(c.points for c in comps)),
         components=comps, matched_required=matched_req, missing_required=missing_req,
         matched_preferred=matched_pref, missing_preferred=missing_pref, listed_only=listed_only,
-        knockout_risks=knockouts,
+        knockout_risks=knockouts, wording_mismatch=mismatch,
+        ats={"key": profile.key, "name": profile.name, "kind": profile.kind, "matching": profile.matching,
+             "auto_ranks": profile.auto_ranks, "how": list(profile.how), "resolved_by": ats.by, "detail": ats.detail},
     )
     report.suggestions = _suggestions(report, resume, market)
     return report
@@ -214,7 +274,12 @@ def _suggestions(r: ScoreReport, resume: ParsedResume, market: dict[str, float])
         return f" ({market[skill]:.0%} of similar postings ask for it)" if skill in market else ""
 
     out = []
+    for s, phrase in list(r.wording_mismatch.items())[:4]:
+        out.append(f"Use the job's exact words for {s}: \"{phrase}\". This ATS searches literal keywords, "
+                   "so your wording does not match.")
     for s in r.missing_required[:5]:
+        if s in r.wording_mismatch:
+            continue
         out.append(f"Required and missing: {s}{demand(s)}. If you have used it, add it to a bullet that shows how.")
     for s in r.listed_only[:3]:
         out.append(f"{s} is only listed. Add one experience or project bullet that shows you using it.")
@@ -226,7 +291,7 @@ def _suggestions(r: ScoreReport, resume: ParsedResume, market: dict[str, float])
 
 
 def render(r: ScoreReport) -> str:
-    lines = [f"Score: {r.total}/100", ""]
+    lines = [f"Score: {r.total}/100" + (f"  ({r.ats['name']} model: {r.ats['detail']})" if r.ats else ""), ""]
     for c in r.components:
         lines.append(f"  {c.name:<17} {c.points:>5.1f} / {c.max_points:<3} {c.why}")
     if r.knockout_risks:
@@ -245,6 +310,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("jd", help="job description as a UTF-8 text file")
     ap.add_argument("--title", help="job title (default: the first line of the JD file)")
     ap.add_argument("--db", help="market database from `market load`, to rank missing skills by demand")
+    ap.add_argument("--company", help="employer name, to look up its ATS in data/company_ats.csv")
+    ap.add_argument("--url", help="job link; its domain identifies the ATS (most reliable)")
+    ap.add_argument("--ats", choices=sorted(PROFILES), help="force a specific ATS model")
     ap.add_argument("--json", action="store_true", help="print JSON instead of text")
     args = ap.parse_args(argv)
 
@@ -266,7 +334,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.db and not market:
         print(f"note: no '{jd.role_family}' postings in {args.db}; suggestions are not ranked by demand",
               file=sys.stderr)
-    report = score(resume, jd, market)
+    report = score(resume, jd, market, resolve(args.company, args.url, args.ats))
     print(json.dumps(report.to_dict(), indent=2) if args.json else render(report))
     return 0
 

@@ -56,6 +56,7 @@ class JobPosting:
     max_years: float | None
     skills: dict[str, str] = field(default_factory=dict)       # skill → required / preferred / mentioned
     has_requirement_headings: bool = False
+    text: str = ""                                               # the description, for exact-wording checks
 
 
 def _heading_kind(line: str) -> str | None:
@@ -138,4 +139,5 @@ def parse_posting(title: str, description: str) -> JobPosting:
     levels, saw = skill_levels(description or "")
     lo, hi = experience_years(description or "")
     return JobPosting(title=title, role_family=role_family(title), seniority=seniority(title),
-                      min_years=lo, max_years=hi, skills=levels, has_requirement_headings=saw)
+                      min_years=lo, max_years=hi, skills=levels, has_requirement_headings=saw,
+                      text=description or "")

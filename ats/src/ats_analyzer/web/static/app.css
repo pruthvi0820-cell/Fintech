@@ -101,6 +101,13 @@ h4 { font-size: 13px; font-family: var(--mono); font-weight: 600; text-transform
 .field input, .field textarea { width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--sunken); padding: 10px 12px; font-weight: 400; font-size: 15px; transition: border-color .2s, background .2s; }
 .field textarea { resize: vertical; min-height: 170px; line-height: 1.5; }
 .field input:focus, .field textarea:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+.field-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.field select { width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--sunken); padding: 10px 12px; font-weight: 400; font-size: 15px; }
+.field select:focus { outline: none; border-color: var(--accent); }
+.ats-line { font-size: 14px; color: var(--muted); }
+.ats-line b { color: var(--ink); }
+.ats-how { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.ats-how li { max-width: 80ch; }
 .counter { align-self: flex-end; font: 12px var(--mono); color: var(--muted); margin-top: -8px; }
 .actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .privacy { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; margin-left: auto; }
@@ -225,6 +232,7 @@ mark.missing, .mark.missing { text-decoration: underline wavy var(--bad); text-u
   .privacy { margin-left: 0; }
 }
 @media (max-width: 560px) {
+  .field-row { grid-template-columns: minmax(0, 1fr); }
   .topnav a { display: none; }
   .how-grid { grid-template-columns: minmax(0, 1fr); }
   .breakdown li { grid-template-columns: minmax(0, 1fr) auto; }

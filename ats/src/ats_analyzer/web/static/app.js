@@ -157,6 +157,9 @@ async function analyze() {
   body.append("resume", file, file.name);
   body.append("jd", jd);
   body.append("title", $("title").value.trim());
+  body.append("company", $("company").value.trim());
+  body.append("job_url", $("job-url").value.trim());
+  body.append("ats", $("ats").value);
 
   const btn = $("analyze-btn");
   btn.disabled = true; btn.textContent = "Analyzing…";
@@ -232,6 +235,17 @@ function render(data) {
   if (job.min_years != null) jobChips.push(el("span", { class: "chip", text: job.max_years != null ? `${job.min_years}–${job.max_years} yrs` : (job.min_years === 0 ? "Freshers OK" : `${job.min_years}+ yrs`) }));
   if (data.market_used) jobChips.push(el("span", { class: "chip found", text: "Ranked by market data" }));
   $("job-chips").replaceChildren(...jobChips);
+
+  const ats = report.ats || {};
+  const how = { "job link": "detected from the job link", "company list": "from the company list",
+                "your choice": "your choice", "default": "no company or link given" }[ats.resolved_by] || "";
+  $("ats-line").replaceChildren("Screened as ", el("b", { text: ats.name || "Generic ATS" }), how ? ` · ${how}` : "");
+  $("ats-line").title = ats.detail || "";
+  $("ats-name").textContent = `How ${ats.name || "this ATS"} screens`;
+  $("ats-kind").textContent = [ats.kind, ats.matching === "exact" ? "matches exact keywords" : "understands related skills",
+                               ats.auto_ranks ? "can rank automatically" : "a person reviews"].filter(Boolean).join(" · ");
+  $("ats-how").replaceChildren(...(ats.how || []).map((t) => el("li", { text: t })),
+    ...(ats.resolved_by === "company list" || ats.resolved_by === "default" ? [el("li", { text: ats.detail })] : []));
 
   const ko = $("knockouts");
   ko.hidden = !report.knockout_risks.length;
@@ -344,6 +358,15 @@ function renderRead(r) {
     : [el("li", { class: "low" }, el("span", { text: "None. An ATS should read this file cleanly." }))]));
 }
 
+async function loadAtsOptions() {
+  try {
+    const res = await fetch("/api/ats");
+    const list = await res.json();
+    $("ats").append(...list.filter((p) => p.key !== "generic").map((p) => el("option", { value: p.key, text: p.name })),
+                    el("option", { value: "generic", text: "Generic ATS" }));
+  } catch { /* the picker keeps only "Detect"; scoring still works */ }
+}
+
 async function showVersion() {
   try {
     const res = await fetch("/api/health");
@@ -354,4 +377,5 @@ async function showVersion() {
 
 initTheme();
 initInputs();
+loadAtsOptions();
 showVersion();
